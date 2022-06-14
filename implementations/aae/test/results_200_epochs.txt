@@ -1,0 +1,56 @@
+200 epochs, train=800, test=200
+
+No Topology Layer
+Generator Loss:  0.1368342824280262
+Topology Loss:  0.03159848880022764
+Discriminator Loss:  0.6035973429679871
+
+Topology loss weighted 1/50
+Generator Loss:  0.18465280905365944
+Topology Loss:  0.045931991189718246
+Discriminator Loss:  0.5212782546877861
+
+Topology Loss Weighted 1/30
+Generator Loss:  0.2659817561507225
+Topology Loss:  0.04334087576717138
+Discriminator Loss:  0.47243647277355194
+
+1000 epochs, train=50000, test=10000
+
+No Topology Layer (best epoch: 572)
+BCE:
+Generator Loss:  0.07721133055580649
+Topology Loss:  0.018321963905054292
+Discriminator Loss:  0.24778739714128956
+MSE:
+Generator Loss:  0.07328349019691444
+Topology Loss:  0.01808335064394269
+Discriminator Loss:  0.07290682754224273
+
+Topology loss weighted 1/50 (best epoch: 25)
+BCE:
+Generator Loss:  0.12374686245705671
+Topology Loss:  0.026020124305490475
+Discriminator Loss:  0.057876339779905736
+MSE:
+Generator Loss:  0.11368293766003505
+Topology Loss:  0.025596512279882553
+Discriminator Loss:  0.014170644178639528
+
+Topology loss weighted 1/50, training n=8000
+MSE:
+Generator Loss:  0.10589134156893773
+Topology Loss:  0.022673624988858866
+Discriminator Loss:  0.06086754594828672
+
+Topology Loss weighted 1/30 (best epoch: 17)
+BCE:
+Generator Loss:  0.17727932220052003
+Topology Loss:  0.020836166260396218
+Discriminator Loss:  0.008560226325608959
+MSE:
+Generator Loss:  0.15943888665004902
+Topology Loss:  0.021036609319175125
+Discriminator Loss:  0.0023035609110318048
+
+higher weight on topology loss = less topology loss, but more overall generator loss if the weight is too high
