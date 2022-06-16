@@ -24,13 +24,13 @@ os.makedirs("images", exist_ok=True)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--n_epochs", type=int, default=1000, help="number of epochs of training")
-parser.add_argument("--batch_size", type=int, default=12, help="size of the batches")
+parser.add_argument("--batch_size", type=int, default=8, help="size of the batches")
 parser.add_argument("--lr", type=float, default=0.0002, help="adam: learning rate")
 parser.add_argument("--a", type=float, default=50, help="weight of topology loss")
 parser.add_argument("--b1", type=float, default=0.5, help="adam: decay of first order momentum of gradient")
 parser.add_argument("--b2", type=float, default=0.999, help="adam: decay of first order momentum of gradient")
 parser.add_argument("--n_cpu", type=int, default=8, help="number of cpu threads to use during batch generation")
-parser.add_argument("--latent_dim", type=int, default=700, help="dimensionality of the latent code")
+parser.add_argument("--latent_dim", type=int, default=500, help="dimensionality of the latent code")
 parser.add_argument("--img_size", type=int, default=85, help="size of each image dimension")
 parser.add_argument("--channels", type=int, default=1, help="number of image channels")
 parser.add_argument("--decoder_input_channels", type=int, default=1, help="number of image channels")
@@ -51,9 +51,10 @@ def reparameterization(mu, logvar):
     return z
 
 class ImageSet(Dataset):
-  def __init__(self, img_dir, transform=None):
+  def __init__(self, img_dir, csv_path, transform=None):
     self.img_dir = img_dir
     self.transform = transform
+    self.betas = Tensor(np.loadtxt(csv_path, delimiter=','))
     self.imgs = []
     for filename in os.listdir(img_dir):
         img = Image.open(os.path.join(img_dir, filename))
@@ -63,7 +64,9 @@ class ImageSet(Dataset):
 
   def __getitem__(self, index):
     img = self.imgs[index]
-    return img
+    beta0 = self.betas[index, 0]
+    beta1 = self.betas[index, 1]
+    return img, beta0, beta1
   def __len__(self):
     return len(self.imgs)
 
@@ -171,7 +174,7 @@ if cuda:
 
 # Configure data loaders
 transform=transforms.Compose([transforms.Grayscale(), transforms.ToTensor(),])
-dataset =ImageSet(img_dir='../../images/size85_mini', transform=transform)
+dataset =ImageSet(img_dir='../../images/mini_dataset_resized', csv_path='../../data/betas_mini.csv', transform=transform)
 valid_size = len(dataset) // 5
 train_size = len(dataset) - valid_size
 train, valid = random_split(dataset, [train_size, valid_size])
@@ -214,7 +217,7 @@ for epoch in range(opt.n_epochs):
     encoder.train()
     decoder.train()
     discriminator.train()
-    for i, imgs in enumerate(trainloader):
+    for i, (imgs, beta0_goal, beta1_goal) in enumerate(trainloader):
 
         # Adversarial ground truths
         valid = Variable(Tensor(imgs.shape[0], 1).fill_(1.0), requires_grad=False)
@@ -287,7 +290,7 @@ for epoch in range(opt.n_epochs):
     epoch_valid_g_loss = 0
     epoch_valid_top_loss = 0
     epoch_valid_d_loss = 0
-    for j, valid_imgs in enumerate(validloader):
+    for j, (valid_imgs, valid_beta0_goal, valid_beta1_goal) in enumerate(validloader):
         valid = Variable(Tensor(valid_imgs.shape[0], 1).fill_(1.0), requires_grad=False)
         real_imgs = Variable(valid_imgs.type(Tensor))
         encoded_imgs = encoder(real_imgs)
