@@ -1,5 +1,6 @@
 import argparse
 import os
+from re import M
 import numpy as np
 import math
 import itertools
@@ -12,6 +13,7 @@ from torch.utils.data import DataLoader, random_split
 from torch.utils.data.dataset import Dataset
 from torchvision import datasets
 from torch.autograd import Variable
+from torch import Tensor
 from torch.utils.tensorboard import SummaryWriter
 
 import torch.nn as nn
@@ -26,7 +28,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--n_epochs", type=int, default=1000, help="number of epochs of training")
 parser.add_argument("--batch_size", type=int, default=8, help="size of the batches")
 parser.add_argument("--lr", type=float, default=0.0002, help="adam: learning rate")
-parser.add_argument("--a", type=float, default=50, help="weight of topology loss")
+parser.add_argument("--a", type=float, default=50000, help="weight of topology loss")
 parser.add_argument("--b1", type=float, default=0.5, help="adam: decay of first order momentum of gradient")
 parser.add_argument("--b2", type=float, default=0.999, help="adam: decay of first order momentum of gradient")
 parser.add_argument("--n_cpu", type=int, default=8, help="number of cpu threads to use during batch generation")
@@ -51,22 +53,49 @@ def reparameterization(mu, logvar):
     return z
 
 class ImageSet(Dataset):
-  def __init__(self, img_dir, csv_path, transform=None):
+  def __init__(self, img_dir, n_dir, c_dir, diff_dir, csv_path, transform=None):
     self.img_dir = img_dir
+    self.n_dir = n_dir
+    self.c_dir = c_dir
     self.transform = transform
     self.betas = Tensor(np.loadtxt(csv_path, delimiter=','))
     self.imgs = []
+    self.neighborhoods = []
+    self.cores = []
+    self.diffs = []
     for filename in os.listdir(img_dir):
         img = Image.open(os.path.join(img_dir, filename))
         img_transformed = self.transform(img)
         self.imgs.append(img_transformed)
         img.close()
 
+    for filename in os.listdir(n_dir):
+        neighborhood = Image.open(os.path.join(n_dir, filename))
+        neighborhood_transformed = self.transform(neighborhood)
+        self.neighborhoods.append(neighborhood_transformed)
+        neighborhood.close()
+
+    for filename in os.listdir(c_dir):
+        core = Image.open(os.path.join(c_dir, filename))
+        core_transformed = self.transform(core)
+        self.cores.append(core_transformed)
+        core.close()
+
+    for filename in os.listdir(diff_dir):
+        diff = Image.open(os.path.join(diff_dir, filename))
+        diff_transformed = self.transform(diff)
+        self.diffs.append(diff_transformed)
+        diff.close()
+
   def __getitem__(self, index):
     img = self.imgs[index]
+    neighborhood = self.neighborhoods[index]
+    core = self.cores[index]
+    diff = self.diffs[index]
     beta0 = self.betas[index, 0]
     beta1 = self.betas[index, 1]
-    return img, beta0, beta1
+    return img, neighborhood, core, diff, beta0, beta1
+
   def __len__(self):
     return len(self.imgs)
 
@@ -158,7 +187,7 @@ class Discriminator(nn.Module):
 
 # Use mean squared error
 adversarial_loss = torch.nn.MSELoss(reduction='mean')
-pixelwise_loss = torch.nn.L1Loss()
+pixelwise_loss = torch.nn.MSELoss(reduction='mean')
 
 # Initialize generator and discriminator
 encoder = Encoder(input_size=85)
@@ -173,8 +202,14 @@ if cuda:
     pixelwise_loss.cuda()
 
 # Configure data loaders
-transform=transforms.Compose([transforms.Grayscale(), transforms.ToTensor(),])
-dataset =ImageSet(img_dir='../../images/mini_dataset_resized', csv_path='../../data/betas_mini.csv', transform=transform)
+transform=transforms.Compose([transforms.ToTensor(),])
+dataset =ImageSet(
+    img_dir='../../images/mini_dataset_resized',
+    n_dir='../../images/neighborhood',
+    c_dir='../../images/core',
+    diff_dir = '../../images/diff',
+    csv_path='../../data/betas_mini.csv',
+    transform=transform)
 valid_size = len(dataset) // 5
 train_size = len(dataset) - valid_size
 train, valid = random_split(dataset, [train_size, valid_size])
@@ -217,7 +252,7 @@ for epoch in range(opt.n_epochs):
     encoder.train()
     decoder.train()
     discriminator.train()
-    for i, (imgs, beta0_goal, beta1_goal) in enumerate(trainloader):
+    for i, (imgs, neighborhoods, cores, diffs, beta0_goal, beta1_goal) in enumerate(trainloader):
 
         # Adversarial ground truths
         valid = Variable(Tensor(imgs.shape[0], 1).fill_(1.0), requires_grad=False)
@@ -225,6 +260,9 @@ for epoch in range(opt.n_epochs):
 
         # Configure input
         real_imgs = Variable(imgs.type(Tensor))
+        n_masks = Variable(neighborhoods.type(Tensor))
+        c_masks = Variable(cores.type(Tensor))
+        d_masks = Variable(diffs.type(Tensor))
 
         # -----------------
         #  Train Generator
@@ -236,21 +274,60 @@ for epoch in range(opt.n_epochs):
         decoded_imgs = decoder(encoded_imgs)
         # decoded_imgs = tensor of shape [64, 1, 32, 32]
 
+        # calculate diff loss (pixels in neighborhood, outside core)
+        decoded_diff = decoded_imgs.clone().detach()
+        decoded_diff[d_masks == 0] = 0 # set pixels not in diff to 0
+        print(decoded_diff.is_cuda, d_masks.is_cuda)
+        diff_loss = pixelwise_loss(decoded_diff, d_masks)
+
+        # calculate neighborhood loss (how much is not in the neighborhood)
+        decoded_n_complement = decoded_imgs.clone().detach()
+        decoded_n_complement[n_masks == 1] = 0
+        ngh_loss = pixelwise_loss(decoded_n_complement, torch.zeros_like(decoded_n_complement)) # mean square of pixels in decoded_n_complement
+
+        # calculate core loss (how much of core is not contained)
+        decoded_core = decoded_imgs.clone().detach()
+        decoded_core[c_masks == 0] = 0
+        core_loss = pixelwise_loss(decoded_core, c_masks) # mean (1-a)^2 for each pixel value a in decoded_core
+
+        # calculate betas of decoded imgs
         top_loss = 0
+        T = 95/255
+        epsilon = 15/255
+        n_threshold = T - epsilon
+        c_threshold = T + epsilon
+        
         for n in range(decoded_imgs.size(0)):
-            barcode = levelsetlayer(decoded_imgs[n, 0, :, :])
-            top_loss += beta0layer(barcode)
-        top_loss = top_loss / (opt.a*decoded_imgs.size(0))
-        epoch_top_loss += top_loss.item()
+            decoded = decoded_imgs[n, 0, :, :]
+            decoded[decoded < n_threshold] = 0
+            mask = decoded >= c_threshold
+            decoded[decoded >= n_threshold] = 0.5
+            decoded[mask] = 1
+            barcode = levelsetlayer(decoded)[0]
+
+            beta0_target = beta0_goal[n]
+            barcode0 = barcode[0]
+            barcode0_births = barcode0[:, 0]
+            barcode0_deaths = barcode0[:, 1]
+            barcode0_deaths = barcode0_deaths[barcode0_births == 1]
+            barcode0_deaths = barcode0_deaths[barcode0_deaths == 0.5]
+            beta0 = barcode0_deaths.size(0)
+            top_loss += (beta0_target - beta0) ** 2
+
+            beta1_target = beta1_goal[n]
+            barcode1 = barcode[1]
+            barcode1_births = barcode1[:, 0]
+            barcode1_deaths = barcode1[:, 1]
+            barcode1_deaths = barcode1_deaths[barcode1_births == 1]
+            barcode1_deaths = barcode1_deaths[barcode1_deaths == 0.5]
+            beta1 = barcode1_deaths.size(0)
+            top_loss += (beta1_target - beta1) ** 2
+
+        top_loss = top_loss / decoded_imgs.size(0)
+        epoch_top_loss += top_loss
 
         # Loss measures generator's ability to fool the discriminator
-        print(decoded_imgs.size())
-        print(encoded_imgs.size())
-        print(valid.size())
-        print(real_imgs.size())
-        g_loss = top_loss + 0.001 * adversarial_loss(discriminator(encoded_imgs), valid) + 0.999 * pixelwise_loss(
-            decoded_imgs, real_imgs
-        )
+        g_loss = 2 * diff_loss + ngh_loss + core_loss + 0.00001 * top_loss + 0.001 * adversarial_loss(discriminator(encoded_imgs), valid)
         epoch_g_loss += g_loss.item()
         g_loss.backward()
         optimizer_G.step()
@@ -290,28 +367,79 @@ for epoch in range(opt.n_epochs):
     epoch_valid_g_loss = 0
     epoch_valid_top_loss = 0
     epoch_valid_d_loss = 0
-    for j, (valid_imgs, valid_beta0_goal, valid_beta1_goal) in enumerate(validloader):
+    for j, (valid_imgs, valid_neighborhoods, valid_cores, valid_diffs, valid_beta0_goal, valid_beta1_goal) in enumerate(validloader):
+
         valid = Variable(Tensor(valid_imgs.shape[0], 1).fill_(1.0), requires_grad=False)
+        fake = Variable(Tensor(valid_imgs.shape[0], 1).fill_(0.0), requires_grad=False)
+
+        # Configure input
         real_imgs = Variable(valid_imgs.type(Tensor))
+        n_masks = Variable(valid_neighborhoods.type(Tensor))
+        c_masks = Variable(valid_cores.type(Tensor))
+        d_masks = Variable(valid_diffs.type(Tensor))
+
+        # -----------------
+        #  Train Generator
+        # -----------------
+
         encoded_imgs = encoder(real_imgs)
         decoded_imgs = decoder(encoded_imgs)
+        # decoded_imgs = tensor of shape [64, 1, 32, 32]
+
+        # calculate diff loss (pixels in neighborhood, outside core)
+        decoded_diff = decoded_imgs.clone().detach()
+        decoded_diff[d_masks == 0] = 0 # set pixels not in diff to 0
+        diff_loss = pixelwise_loss(decoded_diff, d_masks)
+
+        # calculate neighborhood loss (how much is not in the neighborhood)
+        decoded_n_complement = decoded_imgs.clone().detach()
+        decoded_n_complement[n_masks == 1] = 0
+        ngh_loss = pixelwise_loss(decoded_n_complement, torch.zeros_like(decoded_n_complement)) # mean square of pixels in decoded_n_complement
+
+        # calculate core loss (how much of core is not contained)
+        decoded_core = decoded_imgs.clone().detach()
+        decoded_core[c_masks == 0] = 0
+        core_loss = pixelwise_loss(decoded_core, c_masks) # mean (1-a)^2 for each pixel value a in decoded_core
+
+        # calculate betas of decoded imgs
         top_loss = 0
+        T = 95/255
+        epsilon = 15/255
+        n_threshold = T - epsilon
+        c_threshold = T + epsilon
+        
         for m in range(decoded_imgs.size(0)):
-            barcode = levelsetlayer(decoded_imgs[m, 0, :, :])
-            top_loss += beta0layer(barcode)
-        top_loss = top_loss / (opt.a*decoded_imgs.size(0))
-        epoch_valid_top_loss += top_loss
-        valid_g_loss = top_loss + 0.001 * adversarial_loss(discriminator(encoded_imgs), valid) + 0.999 * pixelwise_loss(
-            decoded_imgs, real_imgs
-        )
+            decoded = decoded_imgs[m, 0, :, :]
+            decoded[decoded < n_threshold] = 0
+            mask = decoded >= c_threshold
+            decoded[decoded >= n_threshold] = 0.5
+            decoded[mask] = 1
+            barcode = levelsetlayer(decoded)[0]
+
+            beta0_target = beta0_goal[m]
+            barcode0 = barcode[0]
+            barcode0_births = barcode0[:, 0]
+            barcode0_deaths = barcode0[:, 1]
+            barcode0_deaths = barcode0_deaths[barcode0_births == 1]
+            barcode0_deaths = barcode0_deaths[barcode0_deaths == 0.5]
+            beta0 = barcode0_deaths.size(0)
+            top_loss += (beta0_target - beta0) ** 2
+
+            beta1_target = beta1_goal[m]
+            barcode1 = barcode[1]
+            barcode1_births = barcode1[:, 0]
+            barcode1_deaths = barcode1[:, 1]
+            barcode1_deaths = barcode1_deaths[barcode1_births == 1]
+            barcode1_deaths = barcode1_deaths[barcode1_deaths == 0.5]
+            beta1 = barcode1_deaths.size(0)
+            top_loss += (beta1_target - beta1) ** 2
+
+        top_loss = top_loss / decoded_imgs.size(0)
+        epoch_top_loss += top_loss
+
+        # Loss measures generator's ability to fool the discriminator
+        valid_g_loss = 2 * diff_loss + ngh_loss + core_loss + 0.00001 * top_loss + 0.001 * adversarial_loss(discriminator(encoded_imgs), valid)
         epoch_valid_g_loss += valid_g_loss.item()
-
-        z = Variable(Tensor(np.random.normal(0, 1, (imgs.shape[0], opt.latent_dim))))
-
-        print(
-            "[Epoch %d/%d] Validation [Batch %d/%d] [G loss: %f]"
-            % (epoch, opt.n_epochs, j, len(validloader), valid_g_loss.item())
-        )
 
     epoch_valid_g_loss /= len(validloader)
     if epoch_valid_g_loss < best_val_loss:

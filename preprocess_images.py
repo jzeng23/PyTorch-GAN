@@ -13,9 +13,10 @@ levelsetlayer = LevelSetLayer2D(size=(85, 85), maxdim=1, sublevel=False)
 dir = 'images/mini_dataset_resized'
 i = 0
 betas = []
+print(os.listdir(dir))
 for img_name in os.listdir(dir):
 
-    filename = str(i) + '.png'
+    filename = img_name
 
     img_original = Image.open(os.path.join(dir, img_name))
     img = np.asarray(img_original)
@@ -25,15 +26,15 @@ for img_name in os.listdir(dir):
     
     Image.fromarray(neighborhood).save(os.path.join('images/neighborhood', filename))
 
-    neighborhood_complement = img.copy()
-    neighborhood_complement[neighborhood == 0] = 255
-    neighborhood_complement[neighborhood == 255] = 0
-    Image.fromarray(neighborhood_complement).save(os.path.join('images/nc', filename))
-
     core = img.copy()
     core[core >= 110] = 255
     core[core < 110] = 0
     Image.fromarray(core).save(os.path.join('images/core', filename))
+
+    diff = img.copy()
+    diff[neighborhood == 0] = 0 # set pixels outside of neighborhood and inside core to 0
+    diff[core == 255] = 0
+    Image.fromarray(diff).save(os.path.join('images/diff', filename))
 
     # make images with 0, 1/2, 1 values
     new_img = img.copy()
