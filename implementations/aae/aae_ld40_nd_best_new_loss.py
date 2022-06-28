@@ -24,10 +24,12 @@ import torch
 
 from topologylayer.nn import LevelSetLayer2D, SumBarcodeLengths
 
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
 os.makedirs("images", exist_ok=True)
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--n_epochs", type=int, default=3000, help="number of epochs of training")
+parser.add_argument("--n_epochs", type=int, default=10000, help="number of epochs of training")
 parser.add_argument("--batch_size", type=int, default=8, help="size of the batches")
 parser.add_argument("--lr", type=float, default=0.0002, help="adam: learning rate")
 parser.add_argument("--T", type=float, default=83/255, help="threshold")
@@ -40,7 +42,7 @@ parser.add_argument("--img_size", type=int, default=85, help="size of each image
 parser.add_argument("--channels", type=int, default=1, help="number of image channels")
 parser.add_argument("--decoder_input_channels", type=int, default=1, help="number of image channels")
 parser.add_argument("--sample_interval", type=int, default=100, help="interval between image sampling")
-parser.add_argument("--save_dir", type=str, default='best_model/ld40_nodiff', help="directory where you save models")
+parser.add_argument("--save_dir", type=str, default='latest_model/smaller_ngh/abs_value', help="directory where you save models")
 opt = parser.parse_args()
 print(opt)
 
@@ -59,19 +61,19 @@ def reparameterization(mu, logvar):
     return z
 
 class ImageSet(Dataset):
-  def __init__(self, img_dir, n_dir, c_dir, thresholded_dir, transform=None):
+  def __init__(self, img_dir, n_dir, c_dir, betas_path, transform=None):
     self.img_dir = img_dir
     self.n_dir = n_dir
     self.c_dir = c_dir
     self.transform = transform
     self.imgs = []
-    self.betas = []
+    self.betas = np.loadtxt(betas_path, delimiter=',')
     self.neighborhoods = []
     self.cores = []
-    self.thesholded_imgs = []
     self.nc_sizes = []
     self.core_sizes = []
-    for filename in os.listdir(img_dir):
+    for index in range(len(os.listdir(img_dir))):
+        filename = 'data_' + str(index) + '.png'
         img = Image.open(os.path.join(img_dir, filename))
         img_transformed = self.transform(img)
         self.imgs.append(img_transformed)
@@ -90,26 +92,6 @@ class ImageSet(Dataset):
         self.core_sizes.append(core_size)
         self.cores.append(core_transformed)
         core.close()
-
-        thresholded = Image.open(os.path.join(thresholded_dir, filename))
-        thresholded_transformed = self.transform(thresholded)
-        barcode = levelsetlayer(thresholded_transformed)[0]
-        barcode0 = barcode[0]
-        goal_b0 = 0
-        row = np.zeros(2)
-        for bar in barcode0:
-            if bar[0] == 1 and bar[1] == 0.5:
-                goal_b0 += 1
-        row[0] = goal_b0
-
-        barcode1 = barcode[1]
-        goal_b1 = 0
-        for bar in barcode1:
-            if bar[0] == 1 and bar[1] == 0.5:
-                goal_b1 += 1
-        row[1] = goal_b1
-        self.betas.append(row)
-    self.betas = np.stack(self.betas, axis=0)
         
   def __getitem__(self, index):
     img = self.imgs[index]
@@ -236,10 +218,10 @@ if cuda:
 # Configure data loaders
 transform=transforms.Compose([transforms.ToTensor(),])
 dataset =ImageSet(
-    img_dir='../../images/mini_dataset_resized',
-    n_dir='../../images/neighborhood',
-    c_dir='../../images/core',
-    thresholded_dir='../../images/processed',
+    img_dir='../../images3/mini_dataset_resized',
+    n_dir='../../images3/neighborhood',
+    c_dir='../../images3/core',
+    betas_path='../../betas_mini3.csv',
     transform=transform)
 valid_size = len(dataset) // 5
 train_size = len(dataset) - valid_size
@@ -258,7 +240,10 @@ Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 def sample_image(n_row, batches_done, current_epoch, img):
     """Saves a grid of generated digits"""
     # Sample noise
-    save_image(img.data, "images/ld40_nodiff/epoch_%d.png" % current_epoch, nrow=n_row, normalize=True)
+    save_image(img.data, "images/abs_value/epoch_%d.png" % current_epoch, nrow=n_row, normalize=True)
+    torch.save(encoder, os.path.join(opt.save_dir, 'encoder_%03d.pth' % (epoch)))
+    torch.save(decoder, os.path.join(opt.save_dir, 'decoder_%03d.pth' % (epoch)))
+    torch.save(discriminator, os.path.join(opt.save_dir, 'discriminator_%03d.pth' % (epoch)))
 
 
 # initialize SummaryWriter
@@ -335,11 +320,11 @@ for epoch in range(opt.n_epochs):
             barcode = levelsetlayer(decoded)
             beta0 = beta0layer(barcode)
             beta1 = beta1layer(barcode)
-            top_loss_0 += (target0 - beta0) ** 2
-            top_loss_1 += (target1 - beta1) ** 2
+            top_loss_0 += abs(target0 - beta0)
+            top_loss_1 += abs(target1 - beta1)
 
-        top_loss_0 = 0.00001 * top_loss_0 / decoded_imgs.size(0)
-        top_loss_1 = 0.00001 * top_loss_1 / decoded_imgs.size(0)
+        top_loss_0 = 0.005 * top_loss_0 / decoded_imgs.size(0)
+        top_loss_1 = 0.001 * top_loss_1 / decoded_imgs.size(0)
         epoch_top_loss_0 += top_loss_0
         epoch_top_loss_1 += top_loss_1
 
@@ -428,11 +413,11 @@ for epoch in range(opt.n_epochs):
             barcode = levelsetlayer(decoded)
             beta0 = beta0layer(barcode)
             beta1 = beta1layer(barcode)
-            top_loss_0 += (target0 - beta0) ** 2
-            top_loss_1 += (target1 - beta1) ** 2
+            top_loss_0 += abs(target0 - beta0)
+            top_loss_1 += abs(target1 - beta1)
 
-        top_loss_0 = 0.00001 * top_loss_0 / decoded_imgs.size(0)
-        top_loss_1 = 0.00001 * top_loss_1 / decoded_imgs.size(0)
+        top_loss_0 = 0.005 * top_loss_0 / decoded_imgs.size(0)
+        top_loss_1 = 0.001 * top_loss_1 / decoded_imgs.size(0)
         epoch_valid_top_loss += top_loss_0
         epoch_valid_top_loss += top_loss_1
 
@@ -444,11 +429,11 @@ for epoch in range(opt.n_epochs):
     if epoch_valid_g_loss < best_val_loss:
         best_epoch = epoch
         best_val_loss = epoch_valid_g_loss
-        torch.save(encoder, os.path.join(opt.save_dir, 'encoder_%03d.pth' % (epoch)))
-        torch.save(decoder, os.path.join(opt.save_dir, 'decoder_%03d.pth' % (epoch)))
-        torch.save(discriminator, os.path.join(opt.save_dir, 'discriminator_%03d.pth' % (epoch)))
+        #torch.save(encoder, os.path.join(opt.save_dir, 'encoder_%03d.pth' % (epoch)))
+        #torch.save(decoder, os.path.join(opt.save_dir, 'decoder_%03d.pth' % (epoch)))
+        #torch.save(discriminator, os.path.join(opt.save_dir, 'discriminator_%03d.pth' % (epoch)))
         
-    writer.add_scalars('LD = 40 No Diff', {
+    writer.add_scalars('Abs Val 0.005, 0.001, epsilon=15', {
             'Train Generator': epoch_g_loss / len(trainloader),
             'Train Discriminator': epoch_d_loss / len(trainloader),
             'Train Core' : epoch_c_loss / len(trainloader),

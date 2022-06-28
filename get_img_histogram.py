@@ -4,28 +4,23 @@ import numpy as np
 from PIL import Image
 import matplotlib.pyplot as plt
 
-dir='images/size85_mini'
+dir='images/all_images'
 
-all_imgs = []
-'''
+avg_img = np.zeros((85, 85))
+
 for img_name in os.listdir(dir):
-    img = Image.open(os.path.join(dir, img_name)).convert('L')
+    img = Image.open(os.path.join(dir, img_name)).convert('L').resize((85, 85))
     arr = np.asarray(img)
-    all_imgs.append(arr)
+    avg_img += arr
 
-values = np.stack(all_imgs, axis=0).flatten()'''
-
-img = Image.open(os.path.join(dir, 'data_1470.png')).convert('L')
-arr = np.asarray(img)
-values = arr.flatten()
-
-print(arr[47:50, :])
+avg_img /= len(os.listdir(dir))
+values = avg_img.flatten()
 
 f = plt.figure()
 plt.title('Image Histogram')
 plt.ylabel('Frequency')
 plt.xlabel('Intensity')
-plt.hist(values, bins=128)
+plt.hist(values, bins=256)
 f.savefig('hist.png')
 
 

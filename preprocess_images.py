@@ -10,38 +10,39 @@ from topologylayer.nn import LevelSetLayer2D, SumBarcodeLengths
 
 levelsetlayer = LevelSetLayer2D(size=(85, 85), maxdim=1, sublevel=False)
 
-dir = 'images/mini_dataset_resized'
+dir = 'images3/mini_dataset_resized'
 i = 0
 betas = []
-print(os.listdir(dir))
-for img_name in os.listdir(dir):
+N = 68
+C = 98
+for i in range(len(os.listdir(dir))):
 
-    filename = img_name
+    filename = 'data_' + str(i) + '.png'
 
-    img_original = Image.open(os.path.join(dir, img_name))
+    img_original = Image.open(os.path.join(dir, filename))
     img = np.asarray(img_original)
     neighborhood = img.copy()
-    neighborhood[neighborhood >= 80] = 255
-    neighborhood[neighborhood < 80] = 0
+    neighborhood[neighborhood >= N] = 255
+    neighborhood[neighborhood < N] = 0
     
-    Image.fromarray(neighborhood).save(os.path.join('images/neighborhood', filename))
+    Image.fromarray(neighborhood).save(os.path.join('images3/neighborhood', filename))
 
     core = img.copy()
-    core[core >= 110] = 255
-    core[core < 110] = 0
-    Image.fromarray(core).save(os.path.join('images/core', filename))
+    core[core >= C] = 255
+    core[core < C] = 0
+    Image.fromarray(core).save(os.path.join('images3/core', filename))
 
     diff = img.copy()
     diff[neighborhood == 0] = 0 # set pixels outside of neighborhood and inside core to 0
     diff[core == 255] = 0
-    Image.fromarray(diff).save(os.path.join('images/diff', filename))
+    Image.fromarray(diff).save(os.path.join('images3/diff', filename))
 
     # make images with 0, 1/2, 1 values
     new_img = img.copy()
     processed = np.zeros(img.shape)
-    processed[new_img >= 80] = 0.5
-    processed[new_img >= 110] = 1
-
+    processed[new_img >= N] = 0.5
+    processed[new_img >= C] = 1
+    
     row = np.zeros(2)
     barcode = levelsetlayer(torch.Tensor(processed))[0]
     barcode0 = barcode[0]
@@ -59,16 +60,17 @@ for img_name in os.listdir(dir):
     row[1] = goal_b1
 
     betas.append(row)
-
+    print(str(i), ' ', row)
     processed *= 255
     processed = processed.astype(np.uint8)
 
-    Image.fromarray(processed).save(os.path.join('images/processed', filename))
+    Image.fromarray(processed).save(os.path.join('images3/processed', filename))
     
     i += 1
 
 betas = np.stack(betas, axis=0)
-np.savetxt('betas_mini.csv', betas, delimiter=',')
+np.savetxt('betas_mini3.csv', betas, fmt='%1.0f', delimiter=',')
+print(np.loadtxt('betas_mini3.csv', delimiter=','))
 '''
 values = np.stack(arrs, axis=0).flatten()
 values = arrs[0].flatten()

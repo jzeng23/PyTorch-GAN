@@ -8,6 +8,6 @@ data/*/
 implementations/*/data
 implementations/*/images
 implementations/*/saved_models
-images/
+images3/
 
 __pycache__
