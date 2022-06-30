@@ -10,7 +10,7 @@ from topologylayer.nn import LevelSetLayer2D, SumBarcodeLengths
 
 levelsetlayer = LevelSetLayer2D(size=(85, 85), maxdim=1, sublevel=False)
 
-dir = 'images3/mini_dataset_resized'
+dir = 'images/mini_dataset_resized'
 i = 0
 betas = []
 N = 68
@@ -25,17 +25,17 @@ for i in range(len(os.listdir(dir))):
     neighborhood[neighborhood >= N] = 255
     neighborhood[neighborhood < N] = 0
     
-    Image.fromarray(neighborhood).save(os.path.join('images3/neighborhood', filename))
+    Image.fromarray(neighborhood).save(os.path.join('images/neighborhood', filename))
 
     core = img.copy()
     core[core >= C] = 255
     core[core < C] = 0
-    Image.fromarray(core).save(os.path.join('images3/core', filename))
+    Image.fromarray(core).save(os.path.join('images/core', filename))
 
     diff = img.copy()
     diff[neighborhood == 0] = 0 # set pixels outside of neighborhood and inside core to 0
     diff[core == 255] = 0
-    Image.fromarray(diff).save(os.path.join('images3/diff', filename))
+    Image.fromarray(diff).save(os.path.join('images/diff', filename))
 
     # make images with 0, 1/2, 1 values
     new_img = img.copy()
@@ -64,13 +64,13 @@ for i in range(len(os.listdir(dir))):
     processed *= 255
     processed = processed.astype(np.uint8)
 
-    Image.fromarray(processed).save(os.path.join('images3/processed', filename))
+    Image.fromarray(processed).save(os.path.join('images/processed', filename))
     
     i += 1
 
 betas = np.stack(betas, axis=0)
-np.savetxt('betas_mini3.csv', betas, fmt='%1.0f', delimiter=',')
-print(np.loadtxt('betas_mini3.csv', delimiter=','))
+np.savetxt('data/betas_mini.csv', betas, fmt='%1.0f', delimiter=',')
+print(np.loadtxt('data/betas_mini.csv', delimiter=','))
 '''
 values = np.stack(arrs, axis=0).flatten()
 values = arrs[0].flatten()
