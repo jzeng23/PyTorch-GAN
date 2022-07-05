@@ -1,3 +1,9 @@
+'''
+current settings:
+weights: 3*ngh + 4*core + 0.005*top0 + 0.001*top1 + 0.001 adversarial
+loss: absolute value
+'''
+
 import argparse
 import os
 from re import M
@@ -7,6 +13,7 @@ import math
 import itertools
 from PIL import Image
 from scipy.fftpack import diff
+import json
 
 import torchvision.transforms as transforms
 from torchvision.utils import save_image
@@ -30,7 +37,7 @@ os.makedirs("images", exist_ok=True)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--n_epochs", type=int, default=10000, help="number of epochs of training")
-parser.add_argument("--batch_size", type=int, default=8, help="size of the batches")
+parser.add_argument("--batch_size", type=int, default=10, help="size of the batches")
 parser.add_argument("--lr", type=float, default=0.0002, help="adam: learning rate")
 parser.add_argument("--T", type=float, default=83/255, help="threshold")
 parser.add_argument("--epsilon", type=float, default=15/255, help="epsilon")
@@ -42,11 +49,12 @@ parser.add_argument("--img_size", type=int, default=85, help="size of each image
 parser.add_argument("--channels", type=int, default=1, help="number of image channels")
 parser.add_argument("--decoder_input_channels", type=int, default=1, help="number of image channels")
 parser.add_argument("--sample_interval", type=int, default=100, help="interval between image sampling")
-parser.add_argument("--save_dir", type=str, default='latest_model/smaller_ngh/abs_value', help="directory where you save models")
+parser.add_argument("--save_dir", type=str, default='latest_model/loss_mse/ExponentialLR/0.0002/gamma_0.9996/start_epoch_1500', help="directory where you save models")
 opt = parser.parse_args()
 print(opt)
 
 img_shape = (opt.channels, opt.img_size, opt.img_size)
+settings = 'loss_mse/ExponentialLR/0.0002/gamma_0.9996/start_epoch_1500'
 
 cuda = True if torch.cuda.is_available() else False
 
@@ -62,6 +70,7 @@ def reparameterization(mu, logvar):
 
 class ImageSet(Dataset):
   def __init__(self, img_dir, n_dir, c_dir, betas_path, transform=None):
+    self.img_nums = []
     self.img_dir = img_dir
     self.n_dir = n_dir
     self.c_dir = c_dir
@@ -74,6 +83,7 @@ class ImageSet(Dataset):
     self.core_sizes = []
     for index in range(len(os.listdir(img_dir))):
         filename = 'data_' + str(index) + '.png'
+        self.img_nums.append(index)
         img = Image.open(os.path.join(img_dir, filename))
         img_transformed = self.transform(img)
         self.imgs.append(img_transformed)
@@ -94,6 +104,7 @@ class ImageSet(Dataset):
         core.close()
         
   def __getitem__(self, index):
+    img_num = self.img_nums[index]
     img = self.imgs[index]
     neighborhood = self.neighborhoods[index]
     core = self.cores[index]
@@ -101,7 +112,7 @@ class ImageSet(Dataset):
     beta1 = self.betas[index, 1]
     nc_size = self.nc_sizes[index]
     core_size = self.core_sizes[index]
-    return img, neighborhood, core, beta0, beta1, nc_size, core_size
+    return img_num, img, neighborhood, core, beta0, beta1, nc_size, core_size
 
   def __len__(self):
     return len(self.imgs)
@@ -200,7 +211,6 @@ class Discriminator(nn.Module):
 
 # Use mean squared error
 adversarial_loss = torch.nn.MSELoss(reduction='mean')
-v_loss = torch.nn.MSELoss(reduction='mean')
 pixelwise_loss = torch.nn.MSELoss(reduction='sum')
 
 # Initialize generator and discriminator
@@ -218,44 +228,46 @@ if cuda:
 # Configure data loaders
 transform=transforms.Compose([transforms.ToTensor(),])
 dataset =ImageSet(
-    img_dir='../../images3/mini_dataset_resized',
-    n_dir='../../images3/neighborhood',
-    c_dir='../../images3/core',
-    betas_path='../../betas_mini3.csv',
+    img_dir='../../images/mini_dataset_resized',
+    n_dir='../../images/neighborhood',
+    c_dir='../../images/core',
+    betas_path='../../data/betas_mini.csv',
     transform=transform)
-valid_size = len(dataset) // 5
-train_size = len(dataset) - valid_size
-train, valid = random_split(dataset, [train_size, valid_size])
-trainloader = torch.utils.data.DataLoader(train, batch_size=opt.batch_size, shuffle=True)
-validloader = torch.utils.data.DataLoader(valid, batch_size=opt.batch_size, shuffle=True)
+
+trainloader = torch.utils.data.DataLoader(dataset, batch_size=opt.batch_size, shuffle=True)
 
 # Optimizers
 optimizer_G = torch.optim.Adam(
     itertools.chain(encoder.parameters(), decoder.parameters()), lr=opt.lr, betas=(opt.b1, opt.b2)
 )
+scheduler_G = torch.optim.lr_scheduler.ExponentialLR(optimizer_G, gamma=0.9996)
 optimizer_D = torch.optim.Adam(discriminator.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
 
 Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
 def sample_image(n_row, batches_done, current_epoch, img):
-    """Saves a grid of generated digits"""
+    """Saves a grid of training data before and after it's put through the autoencoder"""
     # Sample noise
-    save_image(img.data, "images/abs_value/epoch_%d.png" % current_epoch, nrow=n_row, normalize=True)
+    img_save_path = 'images/' + settings + '/epoch_%d.png' % current_epoch
+
+    save_image(img.data, img_save_path, nrow=n_row, normalize=True)
     torch.save(encoder, os.path.join(opt.save_dir, 'encoder_%03d.pth' % (epoch)))
     torch.save(decoder, os.path.join(opt.save_dir, 'decoder_%03d.pth' % (epoch)))
     torch.save(discriminator, os.path.join(opt.save_dir, 'discriminator_%03d.pth' % (epoch)))
-
-
-# initialize SummaryWriter
-writer = SummaryWriter()
 
 # variables for tracking epoch with best validation performance
 best_epoch = 0
 best_val_loss = np.inf
 
+# initialize SummaryWriter
+writer = SummaryWriter()
+
 # ----------
 #  Training
 # ----------
+encoder.train()
+decoder.train()
+discriminator.train()
 for epoch in range(opt.n_epochs):
     epoch_g_loss = 0
     epoch_top_loss_0 = 0
@@ -264,10 +276,9 @@ for epoch in range(opt.n_epochs):
     epoch_c_loss = 0
     epoch_n_loss = 0
     epoch_diff_loss = 0
-    encoder.train()
-    decoder.train()
-    discriminator.train()
-    for i, (imgs, neighborhoods, cores, train_beta0_goal, train_beta1_goal, train_nc_size, train_core_size) in enumerate(trainloader):
+    learning_rate = 0
+    epoch_barcodes = {}
+    for i, (img_nums, imgs, neighborhoods, cores, train_beta0_goal, train_beta1_goal, train_nc_size, train_core_size) in enumerate(trainloader):
 
         # Adversarial ground truths
         valid = Variable(Tensor(imgs.shape[0], 1).fill_(1.0), requires_grad=False)
@@ -318,13 +329,17 @@ for epoch in range(opt.n_epochs):
             target0 = beta0_goal[n]
             target1 = beta1_goal[n]
             barcode = levelsetlayer(decoded)
+            filename = 'data_' + str(img_nums[n].item()) + '.png'
+            barcode0 = barcode[0][0].clone().detach().tolist()
+            barcode1 = barcode[0][1].clone().detach().tolist()
+            epoch_barcodes[filename] = [barcode0, barcode1]
             beta0 = beta0layer(barcode)
             beta1 = beta1layer(barcode)
-            top_loss_0 += abs(target0 - beta0)
-            top_loss_1 += abs(target1 - beta1)
+            top_loss_0 += (target0 - beta0)**2
+            top_loss_1 += (target1 - beta1)**2
 
-        top_loss_0 = 0.005 * top_loss_0 / decoded_imgs.size(0)
-        top_loss_1 = 0.001 * top_loss_1 / decoded_imgs.size(0)
+        top_loss_0 = 0.00001 * top_loss_0 / decoded_imgs.size(0)
+        top_loss_1 = 0.00001 * top_loss_1 / decoded_imgs.size(0)
         epoch_top_loss_0 += top_loss_0
         epoch_top_loss_1 += top_loss_1
 
@@ -333,6 +348,9 @@ for epoch in range(opt.n_epochs):
         epoch_g_loss += g_loss.item()
         g_loss.backward()
         optimizer_G.step()
+        learning_rate = scheduler_G.get_last_lr()[0]
+        if epoch >= 1500:
+            scheduler_G.step()
 
         # ---------------------
         #  Train Discriminator
@@ -358,18 +376,24 @@ for epoch in range(opt.n_epochs):
 
         batches_done = epoch * len(trainloader) + i
         if batches_done % opt.sample_interval == 0:
-            sample_image(n_row=8, batches_done=batches_done, current_epoch=epoch, img=decoded_imgs.clone().detach())
+            sample_image(n_row=opt.batch_size, batches_done=batches_done, current_epoch=epoch, img=torch.cat((real_imgs.clone().detach(), decoded_imgs.clone().detach()), 0))
+            json_obj = json.dumps(epoch_barcodes)
+            json_file_name = 'barcodes/'+ settings + '/epoch_' + str(epoch) + '.json'
+            json_file = open(json_file_name, 'x')
+            json_file.write(json_obj)
+            json_file.close()
 
     # -----------
     # Validation
     # -----------
+    '''
     encoder.eval()
     decoder.eval()
     discriminator.eval()
     epoch_valid_g_loss = 0
     epoch_valid_top_loss = 0
     epoch_valid_d_loss = 0
-    for j, (valid_imgs, valid_neighborhoods, valid_cores, valid_beta0_goal, valid_beta1_goal, valid_nc_size, valid_core_size) in enumerate(validloader):
+    for j, (_, valid_imgs, valid_neighborhoods, valid_cores, valid_beta0_goal, valid_beta1_goal, valid_nc_size, valid_core_size) in enumerate(validloader):
 
         # Adversarial ground truths
         valid = Variable(Tensor(valid_imgs.shape[0], 1).fill_(1.0), requires_grad=False)
@@ -432,14 +456,14 @@ for epoch in range(opt.n_epochs):
         #torch.save(encoder, os.path.join(opt.save_dir, 'encoder_%03d.pth' % (epoch)))
         #torch.save(decoder, os.path.join(opt.save_dir, 'decoder_%03d.pth' % (epoch)))
         #torch.save(discriminator, os.path.join(opt.save_dir, 'discriminator_%03d.pth' % (epoch)))
-        
-    writer.add_scalars('Abs Val 0.005, 0.001, epsilon=15', {
-            'Train Generator': epoch_g_loss / len(trainloader),
-            'Train Discriminator': epoch_d_loss / len(trainloader),
-            'Train Core' : epoch_c_loss / len(trainloader),
-            'Train Ngh': epoch_n_loss / len(trainloader),
-            'Train Top 0': epoch_top_loss_0 / len(trainloader),
-            'Train Top 1': epoch_top_loss_1 / len(trainloader),
-            'Valid Generator': epoch_valid_g_loss,
-            'Valid Topology': epoch_valid_top_loss / len(validloader)
-        }, epoch)
+    '''      
+    writer.add_scalars('ExponentialLR(0.0002, 0.9996), decay start at 1500, MSE 1e-5, epsilon=15', {
+        'Train Generator': epoch_g_loss / len(trainloader),
+        'Train Discriminator': epoch_d_loss / len(trainloader),
+        'Train Core' : epoch_c_loss / len(trainloader),
+        'Train Ngh': epoch_n_loss / len(trainloader),
+        'Train Top 0': epoch_top_loss_0 / len(trainloader),
+        'Train Top 1': epoch_top_loss_1 / len(trainloader)
+    }, epoch)
+
+    writer.add_scalars('ExponentialLR(0.0002, gamma=0.9996), decay start at 1500, Learning Rate', {'LR': learning_rate}, epoch)

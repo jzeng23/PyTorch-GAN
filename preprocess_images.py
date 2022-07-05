@@ -3,6 +3,7 @@ import numpy as np
 from PIL import Image
 from numpy import asarray
 import matplotlib.pyplot as plt
+import json
 
 import torch
 
@@ -15,6 +16,7 @@ i = 0
 betas = []
 N = 68
 C = 98
+barcode_dict = {}
 for i in range(len(os.listdir(dir))):
 
     filename = 'data_' + str(i) + '.png'
@@ -59,6 +61,8 @@ for i in range(len(os.listdir(dir))):
             goal_b1 += 1
     row[1] = goal_b1
 
+    barcode_dict[filename] = [barcode0.tolist(), barcode1.tolist()]
+
     betas.append(row)
     print(str(i), ' ', row)
     processed *= 255
@@ -71,6 +75,11 @@ for i in range(len(os.listdir(dir))):
 betas = np.stack(betas, axis=0)
 np.savetxt('data/betas_mini.csv', betas, fmt='%1.0f', delimiter=',')
 print(np.loadtxt('data/betas_mini.csv', delimiter=','))
+
+barcode_json = json.dumps(barcode_dict)
+barcode_file = open('implementations/aae/barcodes/ground_truth_mini_dataset.json', 'w')
+barcode_file.write(barcode_json)
+
 '''
 values = np.stack(arrs, axis=0).flatten()
 values = arrs[0].flatten()

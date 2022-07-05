@@ -30,16 +30,17 @@ def compute_otsu_criteria(im, th):
 
     return weight0 * var0 + weight1 * var1
 
-dir='images/all_images'
-total = 0
-for img_name in os.listdir(dir):
-    im = Image.open(os.path.join(dir, img_name)).convert('L').resize((85, 85))
+dir='images/mini_dataset_resized'
+thresholds = np.zeros(len(os.listdir(dir)))
+for i in range(len(os.listdir(dir))):
+    filename = 'data_' + str(i) + '.png'
+    im = Image.open(os.path.join(dir, filename))
     im = np.asarray(im)
     threshold_range = range(np.max(im)+1)
     criterias = [compute_otsu_criteria(im, th) for th in threshold_range]
     best_threshold = threshold_range[np.argmin(criterias)]
-    total += best_threshold
-print(total / len(os.listdir(dir)))
+    thresholds[i] = best_threshold
+np.savetxt('data/otsu_thresholds.csv', thresholds, delimiter=',')
 
 # testing all thresholds from 0 to the maximum of the image
 
