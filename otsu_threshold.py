@@ -30,7 +30,7 @@ def compute_otsu_criteria(im, th):
 
     return weight0 * var0 + weight1 * var1
 
-dir='images/mini_dataset_resized'
+dir='images/full_dataset_different_thresholds/original_resized_augmented'
 thresholds = np.zeros(len(os.listdir(dir)))
 for i in range(len(os.listdir(dir))):
     filename = 'data_' + str(i) + '.png'
