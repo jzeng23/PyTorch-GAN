@@ -30,17 +30,23 @@ def compute_otsu_criteria(im, th):
 
     return weight0 * var0 + weight1 * var1
 
-dir='images/full_dataset_different_thresholds/original_resized_augmented'
-thresholds = np.zeros(len(os.listdir(dir)))
-for i in range(len(os.listdir(dir))):
-    filename = 'data_' + str(i) + '.png'
-    im = Image.open(os.path.join(dir, filename))
-    im = np.asarray(im)
-    threshold_range = range(np.max(im)+1)
-    criterias = [compute_otsu_criteria(im, th) for th in threshold_range]
-    best_threshold = threshold_range[np.argmin(criterias)]
-    thresholds[i] = best_threshold
-np.savetxt('data/otsu_thresholds.csv', thresholds, delimiter=',')
+def generate_csv(dir, save_path):
+    thresholds = np.zeros(len(os.listdir(dir)))
+    for i in range(len(os.listdir(dir))):
+        filename = 'data_' + str(i) + '.png'
+        im = Image.open(os.path.join(dir, filename))
+        im = np.asarray(im)
+        threshold_range = range(np.max(im)+1)
+        criterias = [compute_otsu_criteria(im, th) for th in threshold_range]
+        best_threshold = threshold_range[np.argmin(criterias)]
+        thresholds[i] = best_threshold
+    np.savetxt(save_path, thresholds, delimiter=',')
+
+img_dir='images/full_dataset_different_thresholds'
+train_dir = img_dir + '/train/original'
+generate_csv(train_dir, 'data/train_otsu_thresholds.csv')
+test_dir = img_dir + '/test/original'
+generate_csv(test_dir, 'data/test_otsu_thresholds.csv')
 
 # testing all thresholds from 0 to the maximum of the image
 

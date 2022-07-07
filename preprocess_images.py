@@ -11,19 +11,27 @@ from topologylayer.nn import LevelSetLayer2D, SumBarcodeLengths
 
 levelsetlayer = LevelSetLayer2D(size=(85, 85), maxdim=1, sublevel=False)
 
-dir = 'images/full_dataset_different_thresholds/original_resized_augmented'
+dir = 'images/full_dataset_different_thresholds/train'
+original_dir = dir + '/original'
+core_dir = dir + '/core'
+neighborhood_dir = dir + '/neighborhood'
+diff_dir = dir + '/diff'
+processed_dir = dir + '/processed'
+
 i = 0
 betas = []
 
 barcode_dict = {}
 
-otsu_thresholds = np.loadtxt('data/otsu_thresholds.csv', delimiter=',')
+otsu_thresholds = np.loadtxt('data/train_otsu_thresholds.csv', delimiter=',')
 epsilon = 15
 
-for i in range(len(os.listdir(dir))):
+n = len(os.listdir(original_dir))
+
+for i in range(n):
 
     filename = 'data_' + str(i) + '.png'
-    img_original = Image.open(os.path.join(dir, filename))
+    img_original = Image.open(os.path.join(original_dir, filename))
     img = np.asarray(img_original)
 
     N = otsu_thresholds[i] - 15
@@ -33,17 +41,17 @@ for i in range(len(os.listdir(dir))):
     neighborhood[neighborhood >= N] = 255
     neighborhood[neighborhood < N] = 0
     
-    Image.fromarray(neighborhood).save(os.path.join('images/full_dataset_different_thresholds/neighborhood', filename))
+    Image.fromarray(neighborhood).save(os.path.join(neighborhood_dir, filename))
 
     core = img.copy()
     core[core >= C] = 255
     core[core < C] = 0
-    Image.fromarray(core).save(os.path.join('images/full_dataset_different_thresholds/core', filename))
+    Image.fromarray(core).save(os.path.join(core_dir, filename))
 
     diff = img.copy()
     diff[neighborhood == 0] = 0 # set pixels outside of neighborhood and inside core to 0
     diff[core == 255] = 0
-    Image.fromarray(diff).save(os.path.join('images/full_dataset_different_thresholds/diff', filename))
+    Image.fromarray(diff).save(os.path.join(diff_dir, filename))
 
     # make images with 0, 1/2, 1 values
     new_img = img.copy()
@@ -74,16 +82,15 @@ for i in range(len(os.listdir(dir))):
     processed *= 255
     processed = processed.astype(np.uint8)
 
-    Image.fromarray(processed).save(os.path.join('images/full_dataset_different_thresholds/processed', filename))
+    Image.fromarray(processed).save(os.path.join(processed_dir, filename))
     
     i += 1
 
 betas = np.stack(betas, axis=0)
-np.savetxt('data/betas_mini_different_thresholds.csv', betas, fmt='%1.0f', delimiter=',')
-print(np.loadtxt('data/betas_mini_different_thresholds.csv', delimiter=','))
+np.savetxt('data/train_betas.csv', betas, fmt='%1.0f', delimiter=',')
 
 barcode_json = json.dumps(barcode_dict)
-barcode_file = open('implementations/aae/barcodes/ground_truth_full_different_thresholds.json', 'x')
+barcode_file = open('implementations/aae/barcodes/train_ground_truth.json', 'x')
 barcode_file.write(barcode_json)
 
 '''

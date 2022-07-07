@@ -46,7 +46,7 @@ parser.add_argument("--latent_dim", type=int, default=40, help="dimensionality o
 parser.add_argument("--img_size", type=int, default=85, help="size of each image dimension")
 parser.add_argument("--channels", type=int, default=1, help="number of image channels")
 parser.add_argument("--decoder_input_channels", type=int, default=1, help="number of image channels")
-parser.add_argument("--sample_interval", type=int, default=3600, help="interval between image sampling")
+parser.add_argument("--sample_interval", type=int, default=2500, help="interval between image sampling")
 parser.add_argument("--save_dir", type=str, default='best_model/loss_mse/ExponentialLR/0.00017/gamma_0.9996/start_epoch_1500/different_thresholds', help="directory where you save models")
 opt = parser.parse_args()
 print(opt)
@@ -226,10 +226,10 @@ if cuda:
 # Configure data loaders
 transform=transforms.Compose([transforms.ToTensor(),])
 dataset =ImageSet(
-    img_dir='../../images/full_dataset_different_thresholds/original_resized_augmented',
-    n_dir='../../images/full_dataset_different_thresholds/neighborhood',
-    c_dir='../../images/full_dataset_different_thresholds/core',
-    betas_path='../../data/betas_mini_different_thresholds.csv',
+    img_dir='../../images/full_dataset_different_thresholds/train/original',
+    n_dir='../../images/full_dataset_different_thresholds/train/neighborhood',
+    c_dir='../../images/full_dataset_different_thresholds/train/core',
+    betas_path='../../data/train_betas.csv',
     transform=transform)
 
 valid_size = len(dataset) // 5
@@ -257,12 +257,13 @@ def sample_image(n_row, batches_done, current_epoch, img):
     #torch.save(decoder, os.path.join(opt.save_dir, 'decoder_%03d.pth' % (epoch)))
     #torch.save(discriminator, os.path.join(opt.save_dir, 'discriminator_%03d.pth' % (epoch)))
 
-def sample_image_validation(n_row, batches_done, current_epoch, img):
-    """Saves a grid of validation data before and after it's put through the autoencoder"""
+def sample_image_random_noise(n_row, batches_done, current_epoch):
+    """Saves a grid of generated digits"""
     # Sample noise
-    img_save_path = 'images/' + settings + '/training_batch/epoch_%d.png' % current_epoch
-
-    save_image(img.data, img_save_path, nrow=n_row, normalize=True)
+    z = Variable(Tensor(np.random.normal(0, 1, (n_row ** 2, opt.latent_dim))))
+    gen_imgs = decoder(z)
+    img_save_path = 'images/' + settings + '/random_noise/epoch_%d.png' % current_epoch
+    save_image(gen_imgs.data, img_save_path, nrow=n_row, normalize=True)
 
 # variables for tracking epoch with best validation performance
 best_epoch = 0
@@ -400,8 +401,10 @@ for epoch in range(opt.n_epochs):
     decoder.eval()
     discriminator.eval()
     epoch_valid_g_loss = 0
-    epoch_valid_top_loss = 0
-    epoch_valid_d_loss = 0
+    epoch_valid_c_loss = 0
+    epoch_valid_n_loss = 0
+    epoch_valid_top_loss_0 = 0
+    epoch_valid_top_loss_1 = 0
     for j, (_, valid_imgs, valid_neighborhoods, valid_cores, valid_beta0_goal, valid_beta1_goal, valid_nc_size, valid_core_size) in enumerate(validloader):
 
         # Adversarial ground truths
@@ -436,6 +439,8 @@ for epoch in range(opt.n_epochs):
             core_loss += 4*pixelwise_loss(decoded_core[a, 0, :, :], c_masks[a, 0, :, :]) / valid_core_size[a] 
         ngh_loss /= decoded_imgs.size(0)
         core_loss /= decoded_imgs.size(0)
+        epoch_valid_c_loss += core_loss.item()
+        epoch_valid_n_loss += ngh_loss.item()
 
         # calculate topological loss
         top_loss = 0
@@ -448,11 +453,10 @@ for epoch in range(opt.n_epochs):
             beta1 = beta1layer(barcode)
             top_loss_0 += (target0 - beta0)**2
             top_loss_1 += (target1 - beta1)**2
-
+        epoch_valid_top_loss_0 += 0.00001 * top_loss_0
+        epoch_valid_top_loss_1 += 0.00001 * top_loss_1
         top_loss_0 = 0.00001 * top_loss_0 / decoded_imgs.size(0)
         top_loss_1 = 0.00001 * top_loss_1 / decoded_imgs.size(0)
-        epoch_valid_top_loss += top_loss_0
-        epoch_valid_top_loss += top_loss_1
 
         # Loss measures generator's ability to fool the discriminator
         valid_g_loss = ngh_loss + core_loss + top_loss_0 + top_loss_1 + 0.001 * adversarial_loss(discriminator(encoded_imgs), valid)
@@ -475,6 +479,14 @@ for epoch in range(opt.n_epochs):
         'Train Ngh': epoch_n_loss / len(trainloader),
         'Train Top 0': epoch_top_loss_0 / len(trainloader),
         'Train Top 1': epoch_top_loss_1 / len(trainloader)
+    }, epoch)
+
+    writer.add_scalars('Validation Loss', {
+        'Valid Generator': epoch_valid_g_loss / len(validloader),
+        'Valid Core' : epoch_valid_c_loss / len(validloader),
+        'Valid Ngh': epoch_valid_n_loss / len(validloader),
+        'Valid Top 0': epoch_valid_top_loss_0 / len(validloader),
+        'Valid Top 1': epoch_valid_top_loss_1 / len(validloader)
     }, epoch)
 
     writer.add_scalars('Full Dataset, Different Thresholds, ExponentialLR(0.00017, gamma=0.9996), decay start at 1500, Learning Rate', {'LR': learning_rate}, epoch)
