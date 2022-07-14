@@ -78,7 +78,7 @@ for i in range(n):
     processed[new_img >= N] = 0.5
     processed[new_img >= C] = 1
     
-    # Calculate target beta numbers and save barcodes of preprocessed images
+    # calculate target beta numbers, save barcodes of preprocessed images.
     row = np.zeros(2)
     barcode = levelsetlayer(torch.Tensor(processed))[0]
     barcode0 = barcode[0]
