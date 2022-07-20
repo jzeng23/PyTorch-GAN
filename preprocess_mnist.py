@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch
+from PIL import Image
 
 from topologylayer.nn import LevelSetLayer2D, SumBarcodeLengths
 
@@ -61,7 +62,7 @@ dataset = datasets.MNIST(
         train=True,
         download=True,
         transform=transforms.Compose(
-            [transforms.Resize(28), transforms.ToTensor(), transforms.Normalize([0.5], [0.5])]
+            [transforms.Resize(28), transforms.ToTensor()]
         ),
     )
 dataset, _ = random_split(dataset, [10, 59990])
@@ -70,6 +71,7 @@ thresholds = np.zeros(10)
 epsilon = 15
 original_betas = []
 ngh_betas = []
+core_betas = []
 for i, (imgs, _) in enumerate(dataloader):
     im = imgs[0, 0, :, :].numpy()
 
@@ -79,11 +81,21 @@ for i, (imgs, _) in enumerate(dataloader):
     criterias = [compute_otsu_criteria(im, th) for th in threshold_range]
     best_threshold = threshold_range[np.argmin(criterias)]
     thresholds[i] = best_threshold
-    N = best_threshold - 15
-    C = best_threshold + 15
+    N = (best_threshold - 15) / 255
+    C = (best_threshold + 15) / 255
 
-    neighborhood = img.copy()
+    neighborhood = im.copy()
     neighborhood[neighborhood >= N] = 255
     neighborhood[neighborhood < N] = 0
-    ngh_betas.append(get_betas(neighborhood))
+    neighborhood_scaled = neighborhood / 255
+    ngh_betas.append(get_betas(neighborhood_scaled))
     Image.fromarray(neighborhood).save(os.path.join(neighborhood_dir, filename))
+
+    core = im.copy()
+    core[core >= C] = 255
+    core[core < C] = 0
+    core_scaled = core / 255
+    core_betas.append(get_betas(core_scaled))
+    Image.fromarray(core).save(os.path.join(core_dir, filename))
+
+    

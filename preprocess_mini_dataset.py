@@ -116,5 +116,11 @@ core_betas = np.stack(core_betas, axis=0)
 np.savetxt('data/core_mini_betas.csv', core_betas, fmt='%1.0f', delimiter=',')
 
 barcode_json = json.dumps(barcode_dict)
-barcode_file = open('implementations/aae/barcodes/mini_dataset_diff_thresholds.json', 'w')
+barcode_file = open('implementations/aae/barcode/mini_dataset_diff_thresholds.json', 'w')
 barcode_file.write(barcode_json)
+
+barcode_img0 = barcode_dict['data_0.png']
+dim0 = np.asarray(barcode_img0[0])
+np.savetxt('data/preprocessed_barcode_dim_0.csv', dim0, fmt='%1.1f', delimiter=',')
+dim1 = np.asarray(barcode_img0[1])
+np.savetxt('data/preprocessed_barcode_dim_1.csv', dim1, fmt='%1.1f', delimiter=',')

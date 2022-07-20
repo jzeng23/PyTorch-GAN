@@ -1,0 +1,2 @@
+'loss_mse/ExponentialLR/0.00017/gamma_0.9996/diff_thresholds_mini_dataset'
+epoch 8000

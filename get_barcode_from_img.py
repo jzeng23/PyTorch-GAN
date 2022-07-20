@@ -14,7 +14,7 @@ def get_barcode_from_img(path):
     barcode0 = np.asarray(barcode[0])
     np.savetxt('data/original_barcode_dim_0.csv', barcode0, delimiter=',')
     barcode1 = np.asarray(barcode[1])
-    np.savetxt('data/original_barcode_dim_1.csv', barcode0, delimiter=',')
+    np.savetxt('data/original_barcode_dim_1.csv', barcode1, delimiter=',')
 
 
 path = 'images/different_thresholds/original/data_0.png'

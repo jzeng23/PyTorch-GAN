@@ -1,6 +1,6 @@
 '''
 current settings:
-weights: 3*ngh + 4*core + 0.005*top0 + 0.001*top1 + 0.001 adversarial
+weights: 3*ngh + 4*core + 0.001*top0 + 0.001*top1 + 0.001 adversarial
 loss: absolute value
 '''
 
@@ -37,7 +37,7 @@ os.makedirs("images", exist_ok=True)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--n_epochs", type=int, default=10000, help="number of epochs of training")
-parser.add_argument("--batch_size", type=int, default=12, help="size of the batches")
+parser.add_argument("--batch_size", type=int, default=10, help="size of the batches")
 parser.add_argument("--lr", type=float, default=0.00017, help="adam: learning rate")
 parser.add_argument("--b1", type=float, default=0.5, help="adam: decay of first order momentum of gradient")
 parser.add_argument("--b2", type=float, default=0.999, help="adam: decay of first order momentum of gradient")
@@ -46,13 +46,16 @@ parser.add_argument("--latent_dim", type=int, default=40, help="dimensionality o
 parser.add_argument("--img_size", type=int, default=85, help="size of each image dimension")
 parser.add_argument("--channels", type=int, default=1, help="number of image channels")
 parser.add_argument("--decoder_input_channels", type=int, default=1, help="number of image channels")
-parser.add_argument("--sample_interval", type=int, default=2500, help="interval between image sampling")
-parser.add_argument("--save_dir", type=str, default='best_model/loss_mse/ExponentialLR/0.00017/gamma_0.9996/start_epoch_1500/different_thresholds', help="directory where you save models")
+parser.add_argument("--sample_interval", type=int, default=100, help="interval between image sampling")
+parser.add_argument("--save_dir", type=str, default='latest_model/loss_mse/ExponentialLR/0.00017/gamma_0.9996/alpha/diff_thresholds_mini_dataset', help="directory where you save models")
 opt = parser.parse_args()
 print(opt)
 
 img_shape = (opt.channels, opt.img_size, opt.img_size)
-settings = 'loss_mse/ExponentialLR/0.00017/gamma_0.9996/start_epoch_1500/different_thresholds'
+settings = 'loss_mse/ExponentialLR/0.00017/gamma_0.9996/alpha/diff_thresholds_mini_dataset'
+os.makedirs('images/' + settings + '/training_batch', exist_ok=True)
+os.makedirs('images/' + settings + '/sample', exist_ok=True)
+os.makedirs(opt.save_dir, exist_ok=True)
 
 cuda = True if torch.cuda.is_available() else False
 
@@ -176,13 +179,15 @@ class Decoder(nn.Module):
             size = 4*(size - 1) + 5
 
         decoder.append(nn.ConvTranspose2d(channels, 1, 5, 4, 0))
-        decoder.append(nn.Sigmoid())
         self.decoder = nn.Sequential(*decoder)
 
-    def forward(self, z):
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, z, alpha):
         z = self.decoder_fc(z)
         z = z.view(-1, z.size(1), 1, 1)
-        return self.decoder(z)
+        z = self.decoder(z)
+        return self.sigmoid(alpha*z)
 
 
 class Discriminator(nn.Module):
@@ -226,17 +231,17 @@ if cuda:
 # Configure data loaders
 transform=transforms.Compose([transforms.ToTensor(),])
 dataset =ImageSet(
-    img_dir='../../images/full_dataset_different_thresholds/train/original',
-    n_dir='../../images/full_dataset_different_thresholds/train/neighborhood',
-    c_dir='../../images/full_dataset_different_thresholds/train/core',
+    img_dir='../../images/different_thresholds/original',
+    n_dir='../../images/different_thresholds/neighborhood',
+    c_dir='../../images/different_thresholds/core',
     betas_path='../../data/train_betas.csv',
     transform=transform)
 
-valid_size = len(dataset) // 5
-train_size = len(dataset) - valid_size
-train, valid = random_split(dataset, [train_size, valid_size])
-trainloader = torch.utils.data.DataLoader(train, batch_size=opt.batch_size, shuffle=True)
-validloader = torch.utils.data.DataLoader(valid, batch_size=opt.batch_size, shuffle=True)
+#valid_size = len(dataset) // 5
+#train_size = len(dataset) - valid_size
+#train, valid = random_split(dataset, [train_size, valid_size])
+trainloader = torch.utils.data.DataLoader(dataset, batch_size=opt.batch_size, shuffle=True)
+#validloader = torch.utils.data.DataLoader(valid, batch_size=opt.batch_size, shuffle=True)
 
 # Optimizers
 optimizer_G = torch.optim.Adam(
@@ -244,18 +249,53 @@ optimizer_G = torch.optim.Adam(
 )
 scheduler_G = torch.optim.lr_scheduler.ExponentialLR(optimizer_G, gamma=0.9996)
 optimizer_D = torch.optim.Adam(discriminator.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
+alpha = 1
 
 Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
-def sample_image(n_row, batches_done, current_epoch, img):
+def sample_image(current_epoch, imgs, nums):
     """Saves a grid of training data before and after it's put through the autoencoder"""
     # Sample noise
-    img_save_path = 'images/' + settings + '/training_batch/epoch_%d.png' % current_epoch
+    img_save_path = 'images/' + settings + '/epoch_%d' % current_epoch
 
-    save_image(img.data, img_save_path, nrow=n_row, normalize=True)
-    #torch.save(encoder, os.path.join(opt.save_dir, 'encoder_%03d.pth' % (epoch)))
-    #torch.save(decoder, os.path.join(opt.save_dir, 'decoder_%03d.pth' % (epoch)))
-    #torch.save(discriminator, os.path.join(opt.save_dir, 'discriminator_%03d.pth' % (epoch)))
+    os.makedirs(img_save_path, exist_ok=True)
+
+    for i in range(nums.size(0)):
+        index = nums[i]
+        img = imgs[i, 0, :, :]
+        save_image(img, os.path.join(img_save_path, 'epoch_%d_data_%d.png' % (current_epoch, index)))
+    
+def save_models(current_epoch, losses):
+    torch.save({
+            'encoder_state_dict': encoder.state_dict(),
+            'decoder_state_dict': decoder.state_dict(),
+            'discriminator_state_dict': discriminator.state_dict(),
+            'optimizer_G_state_dict': optimizer_G.state_dict(),
+            'scheduler_G_state_dict': scheduler_G.state_dict(),
+            'learning_rate': scheduler_G.get_last_lr()[0],
+            'optimizer_D_state_dict': optimizer_D.state_dict(),
+            'epoch': current_epoch,
+            'loss_generator': losses['loss_generator'],
+            'loss_discriminator': losses['loss_discriminator'],
+            'loss_core': losses['loss_core'],
+            'loss_neighborhood': losses['loss_neighborhood'],
+            'loss_top_0': losses['loss_top_0'],
+            'loss_top_1': losses['loss_top_1'],
+            }, os.path.join(opt.save_dir, 'epoch_%d.tar' % current_epoch))
+
+def sample_barcode(imgs, nums, epoch):
+    dim0_path = 'barcode/' + settings + '/dim0/epoch_%d' % epoch
+    dim1_path = 'barcode/' + settings + '/dim1/epoch_%d' % epoch
+    os.makedirs(dim0_path, exist_ok=True)
+    os.makedirs(dim1_path, exist_ok=True)
+    for i in range(nums.size(0)):
+        index = nums[i]
+        im = imgs[i, 0, :, :]
+        barcode = levelsetlayer(im)[0]
+        barcode0 = np.asarray(barcode[0].cpu())
+        np.savetxt(os.path.join(dim0_path, 'dim_0_epoch_%d_data_%d.csv' % (epoch, index)), barcode0, delimiter=',')
+        barcode1 = np.asarray(barcode[1].cpu())
+        np.savetxt(os.path.join(dim1_path, 'dim_1_epoch_%d_data_%d.csv' % (epoch, index)), barcode1, delimiter=',')
 
 def sample_image_random_noise(n_row, batches_done, current_epoch):
     """Saves a grid of generated digits"""
@@ -310,7 +350,7 @@ for epoch in range(opt.n_epochs):
         optimizer_G.zero_grad()
 
         encoded_imgs = encoder(real_imgs)
-        decoded_imgs = decoder(encoded_imgs)
+        decoded_imgs = decoder(encoded_imgs, alpha)
         # decoded_imgs = tensor of shape [64, 1, 32, 32]
 
         # calculate neighborhood loss (how much is not in the neighborhood)
@@ -382,21 +422,24 @@ for epoch in range(opt.n_epochs):
         )
 
         batches_done = epoch * len(trainloader) + i
-        if batches_done % opt.sample_interval == 0:
-            sample_image(n_row=decoded_imgs.size(0), batches_done=batches_done, current_epoch=epoch, img=torch.cat((real_imgs.clone().detach(), decoded_imgs.clone().detach()), 0))
-            json_obj = json.dumps(epoch_barcodes)
-            json_file_name = 'barcodes/'+ settings + '/epoch_' + str(epoch) + '.json'
-            json_file = open(json_file_name, 'x')
-            json_file.write(json_obj)
-            json_file.close()
-
+        if epoch % opt.sample_interval == 0:
+            decoded_clone = decoded_imgs.clone().detach()
+            img0 = torch.zeros_like(decoded_clone[0, 0, :, :])
+            for k in range(img_nums.size(0)):
+                if img_nums[k] == 0:
+                    img0 = decoded_clone[k, 0, :, :]
+            sample_image(current_epoch=epoch, imgs=decoded_clone, nums=img_nums)
+            sample_barcode(decoded_clone, img_nums, epoch)
+    
     learning_rate = scheduler_G.get_last_lr()[0]
     if epoch >= 1500:
         scheduler_G.step()
+
+    alpha = alpha * 1.0003
     # -----------
     # Validation
     # -----------
-
+    '''
     encoder.eval()
     decoder.eval()
     discriminator.eval()
@@ -461,7 +504,7 @@ for epoch in range(opt.n_epochs):
         # Loss measures generator's ability to fool the discriminator
         valid_g_loss = ngh_loss + core_loss + top_loss_0 + top_loss_1 + 0.001 * adversarial_loss(discriminator(encoded_imgs), valid)
         epoch_valid_g_loss += valid_g_loss.item()
-
+    
     epoch_valid_g_loss /= len(validloader)
     if epoch_valid_g_loss < best_val_loss:
         best_epoch = epoch
@@ -470,9 +513,9 @@ for epoch in range(opt.n_epochs):
         torch.save(decoder, os.path.join(opt.save_dir, 'decoder_%03d.pth' % (epoch)))
         torch.save(discriminator, os.path.join(opt.save_dir, 'discriminator_%03d.pth' % (epoch)))
         sample_image_random_noise(n_row=opt.batch_size, batches_done=batches_done, current_epoch=epoch)
-
+    '''
          
-    writer.add_scalars('Full Dataset, Different Thresholds, ExponentialLR(0.00017, 0.9996), decay start at 1500, MSE 1e-5, epsilon=15', {
+    writer.add_scalars('ExponentialLR(0.00017, 0.9996, 1500), MSE 1e-5, epsilon=15, alpha sigmoid', {
         'Train Generator': epoch_g_loss / len(trainloader),
         'Train Discriminator': epoch_d_loss / len(trainloader),
         'Train Core' : epoch_c_loss / len(trainloader),
@@ -481,6 +524,17 @@ for epoch in range(opt.n_epochs):
         'Train Top 1': epoch_top_loss_1 / len(trainloader)
     }, epoch)
 
+    if epoch % opt.sample_interval == 0:
+        losses = {
+            'loss_generator': epoch_g_loss / len(trainloader),
+            'loss_discriminator': epoch_d_loss / len(trainloader),
+            'loss_core' : epoch_c_loss / len(trainloader),
+            'loss_neighborhood': epoch_n_loss / len(trainloader),
+            'loss_top_0': epoch_top_loss_0 / len(trainloader),
+            'loss_top_1': epoch_top_loss_1 / len(trainloader)
+        }
+        save_models(epoch, losses)
+    '''
     writer.add_scalars('Validation Loss', {
         'Valid Generator': epoch_valid_g_loss / len(validloader),
         'Valid Core' : epoch_valid_c_loss / len(validloader),
@@ -488,5 +542,5 @@ for epoch in range(opt.n_epochs):
         'Valid Top 0': epoch_valid_top_loss_0 / len(validloader),
         'Valid Top 1': epoch_valid_top_loss_1 / len(validloader)
     }, epoch)
-
-    writer.add_scalars('Full Dataset, Different Thresholds, ExponentialLR(0.00017, gamma=0.9996), decay start at 1500, Learning Rate', {'LR': learning_rate}, epoch)
+    '''
+    writer.add_scalars('ExponentialLR(0.00017, gamma=0.9996, 1500), alpha', {'alpha': alpha}, epoch)
