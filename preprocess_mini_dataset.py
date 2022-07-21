@@ -19,7 +19,6 @@ neighborhood_dir = dir + '/neighborhood'
 diff_dir = dir + '/diff'
 processed_dir = dir + '/processed'
 
-i = 0
 betas = []
 
 barcode_dict = {}
@@ -84,18 +83,19 @@ for i in range(n):
     barcode0 = barcode[0]
     goal_b0 = 0
     for bar in barcode0:
-        if bar[0] == 1 and bar[1] == 0.5:
+        if bar[0] == 1 and bar[1] <= 0:
             goal_b0 += 1
     row[0] = goal_b0
 
     barcode1 = barcode[1]
     goal_b1 = 0
     for bar in barcode1:
-        if bar[0] == 1 and bar[1] == 0.5:
+        if bar[0] == 1 and bar[1] <= 0:
             goal_b1 += 1
     row[1] = goal_b1
 
-    barcode_dict[filename] = [barcode0.tolist(), barcode1.tolist()]
+    np.savetxt('data/barcodes/preprocessed_mini_dataset_different_thresholds/dim0/preprocessed_barcode_dim_0_data_%d.csv' % i, np.asarray(barcode0), fmt='%1.1f', delimiter=',')
+    np.savetxt('data/barcodes/preprocessed_mini_dataset_different_thresholds/dim1/preprocessed_barcode_dim_1_data_%d.csv' % i, np.asarray(barcode1), fmt='%1.1f', delimiter=',')
 
     betas.append(row)
     print(str(i), ' ', row)
@@ -114,13 +114,3 @@ np.savetxt('data/ngh_mini_betas.csv', ngh_betas, fmt='%1.0f', delimiter=',')
 
 core_betas = np.stack(core_betas, axis=0)
 np.savetxt('data/core_mini_betas.csv', core_betas, fmt='%1.0f', delimiter=',')
-
-barcode_json = json.dumps(barcode_dict)
-barcode_file = open('implementations/aae/barcode/mini_dataset_diff_thresholds.json', 'w')
-barcode_file.write(barcode_json)
-
-barcode_img0 = barcode_dict['data_0.png']
-dim0 = np.asarray(barcode_img0[0])
-np.savetxt('data/preprocessed_barcode_dim_0.csv', dim0, fmt='%1.1f', delimiter=',')
-dim1 = np.asarray(barcode_img0[1])
-np.savetxt('data/preprocessed_barcode_dim_1.csv', dim1, fmt='%1.1f', delimiter=',')
