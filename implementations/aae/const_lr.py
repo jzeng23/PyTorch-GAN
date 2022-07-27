@@ -38,7 +38,7 @@ os.makedirs("images", exist_ok=True)
 parser = argparse.ArgumentParser()
 parser.add_argument("--n_epochs", type=int, default=10000, help="number of epochs of training")
 parser.add_argument("--batch_size", type=int, default=10, help="size of the batches")
-parser.add_argument("--lr", type=float, default=0.0003, help="adam: learning rate")
+parser.add_argument("--lr", type=float, default=0.0002, help="adam: learning rate")
 parser.add_argument("--b1", type=float, default=0.5, help="adam: decay of first order momentum of gradient")
 parser.add_argument("--b2", type=float, default=0.999, help="adam: decay of first order momentum of gradient")
 parser.add_argument("--n_cpu", type=int, default=8, help="number of cpu threads to use during batch generation")
@@ -47,12 +47,12 @@ parser.add_argument("--img_size", type=int, default=85, help="size of each image
 parser.add_argument("--channels", type=int, default=1, help="number of image channels")
 parser.add_argument("--decoder_input_channels", type=int, default=1, help="number of image channels")
 parser.add_argument("--sample_interval", type=int, default=100, help="interval between image sampling")
-parser.add_argument("--save_dir", type=str, default='latest_model/loss_mse/lr_0.0003/top_0.0001', help="directory where you save models")
+parser.add_argument("--save_dir", type=str, default='latest_model/loss_mse/lr_0.0002/alpha', help="directory where you save models")
 opt = parser.parse_args()
 print(opt)
 
 img_shape = (opt.channels, opt.img_size, opt.img_size)
-settings = 'loss_mse/lr_0.0003/top_0.0001'
+settings = 'loss_mse/lr_0.0002/alpha'
 os.makedirs(opt.save_dir, exist_ok=True)
 
 cuda = True if torch.cuda.is_available() else False
@@ -60,6 +60,7 @@ cuda = True if torch.cuda.is_available() else False
 levelsetlayer = LevelSetLayer2D(size=(opt.img_size, opt.img_size), maxdim=1, sublevel=False)
 beta0layer = SumBarcodeLengths(dim=0)
 beta1layer = SumBarcodeLengths(dim=1)
+alpha = 1
 
 def reparameterization(mu, logvar):
     std = torch.exp(logvar / 2)
@@ -177,13 +178,15 @@ class Decoder(nn.Module):
             size = 4*(size - 1) + 5
 
         decoder.append(nn.ConvTranspose2d(channels, 1, 5, 4, 0))
-        decoder.append(nn.Sigmoid())
         self.decoder = nn.Sequential(*decoder)
 
-    def forward(self, z):
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, z, alpha):
         z = self.decoder_fc(z)
         z = z.view(-1, z.size(1), 1, 1)
-        return self.decoder(z)
+        z = self.decoder(z)
+        return self.sigmoid(alpha * z)
 
 
 class Discriminator(nn.Module):
@@ -345,7 +348,7 @@ for epoch in range(opt.n_epochs):
         optimizer_G.zero_grad()
 
         encoded_imgs = encoder(real_imgs)
-        decoded_imgs = decoder(encoded_imgs)
+        decoded_imgs = decoder(encoded_imgs, alpha)
         # decoded_imgs = tensor of shape [64, 1, 32, 32]
 
         # calculate neighborhood loss (how much is not in the neighborhood)
@@ -383,8 +386,8 @@ for epoch in range(opt.n_epochs):
             top_loss_0 += (target0 - beta0)**2
             top_loss_1 += (target1 - beta1)**2
 
-        top_loss_0 = 0.001 * top_loss_0 / decoded_imgs.size(0)
-        top_loss_1 = 0.001 * top_loss_1 / decoded_imgs.size(0)
+        top_loss_0 = 0.00001 * top_loss_0 / decoded_imgs.size(0)
+        top_loss_1 = 0.00001 * top_loss_1 / decoded_imgs.size(0)
         epoch_top_loss_0 += top_loss_0
         epoch_top_loss_1 += top_loss_1
 
@@ -430,6 +433,7 @@ for epoch in range(opt.n_epochs):
     if epoch >= 1500:
         #scheduler_G.step()
     '''
+    alpha *= 1.0003
     # -----------
     # Validation
     # -----------
@@ -509,7 +513,7 @@ for epoch in range(opt.n_epochs):
         sample_image_random_noise(n_row=opt.batch_size, batches_done=batches_done, current_epoch=epoch)
     '''
          
-    writer.add_scalars('LR=0.0003, MSE 1e-4, epsilon=15, new goal betas', {
+    writer.add_scalars('LR=0.0002, MSE 1e-5, epsilon=15, new goal betas', {
         'Train Generator': epoch_g_loss / len(trainloader),
         'Train Discriminator': epoch_d_loss / len(trainloader),
         'Train Core' : epoch_c_loss / len(trainloader),
