@@ -31,8 +31,8 @@ def compute_otsu_criteria(im, th):
     return weight0 * var0 + weight1 * var1
 
 def generate_csv(dir, save_path):
-    thresholds = np.zeros(len(os.listdir(dir)) - 4)
-    for i in range(len(os.listdir(dir)) - 4):
+    thresholds = np.zeros(len(os.listdir(dir)))
+    for i in range(len(os.listdir(dir))):
         filename = 'data_' + str(i) + '.png'
         im = Image.open(os.path.join(dir, filename))
         im = np.asarray(im)
@@ -43,9 +43,10 @@ def generate_csv(dir, save_path):
         print(i)
     np.savetxt(save_path, thresholds, delimiter=',')
 
-img_dir='images/mini_dataset_resized'
+img_dir='images/full_dataset_different_thresholds'
 train_dir = img_dir + '/train/original'
-generate_csv(img_dir, 'data/mini_otsu_thresholds_diff_thresholds.csv')
+test_dir = img_dir + '/test/original'
+generate_csv(train_dir, 'data/otsu_thresholds_full_train.csv')
 
 # testing all thresholds from 0 to the maximum of the image
 

@@ -1,3 +1,5 @@
+from genericpath import exists
+from operator import delitem
 import os
 import numpy as np
 from PIL import Image
@@ -15,19 +17,40 @@ dir = 'images/full_dataset_different_thresholds/train'
 original_dir = dir + '/original'
 core_dir = dir + '/core'
 neighborhood_dir = dir + '/neighborhood'
-diff_dir = dir + '/diff'
 processed_dir = dir + '/processed'
 
-i = 0
+os.makedirs(core_dir, exist_ok=True)
+os.makedirs(neighborhood_dir, exist_ok=True)
+os.makedirs(processed_dir, exist_ok=True)
+os.makedirs('data/barcodes/preprocessed_full_train/dim0', exist_ok=True)
+os.makedirs('data/barcodes/preprocessed_full_train/dim1', exist_ok=True)
+
 betas = []
 
 barcode_dict = {}
 
-otsu_thresholds = np.loadtxt('data/train_otsu_thresholds.csv', delimiter=',')
+otsu_thresholds = np.loadtxt('data/otsu_thresholds_full_train.csv', delimiter=',')
 epsilon = 15
 
-n = len(os.listdir(original_dir))
+def get_betas(img_array):
+    img = torch.Tensor(img_array) / 255
+    barcode = levelsetlayer(img)[0]
+    beta0 = 0
+    for pair in barcode[0]:
+        length = pair[0] - pair[1]
+        if length >= 1.0:
+            beta0 += 1
+    beta1 = 0
+    for pair in barcode[1]:
+        length = pair[0] - pair[1]
+        if length >= 1.0:
+            beta1 += 1 
+    ans = [beta0, beta1]
+    return ans   
 
+n = len(os.listdir(original_dir))
+core_betas = []
+ngh_betas = []
 for i in range(n):
 
     filename = 'data_' + str(i) + '.png'
@@ -40,18 +63,14 @@ for i in range(n):
     neighborhood = img.copy()
     neighborhood[neighborhood >= N] = 255
     neighborhood[neighborhood < N] = 0
-    
+    ngh_betas.append(get_betas(neighborhood))
     Image.fromarray(neighborhood).save(os.path.join(neighborhood_dir, filename))
 
     core = img.copy()
     core[core >= C] = 255
     core[core < C] = 0
+    core_betas.append(get_betas(core))
     Image.fromarray(core).save(os.path.join(core_dir, filename))
-
-    diff = img.copy()
-    diff[neighborhood == 0] = 0 # set pixels outside of neighborhood and inside core to 0
-    diff[core == 255] = 0
-    Image.fromarray(diff).save(os.path.join(diff_dir, filename))
 
     # make images with 0, 1/2, 1 values
     new_img = img.copy()
@@ -59,23 +78,25 @@ for i in range(n):
     processed[new_img >= N] = 0.5
     processed[new_img >= C] = 1
     
+    # calculate target beta numbers, save barcodes of preprocessed images.
     row = np.zeros(2)
     barcode = levelsetlayer(torch.Tensor(processed))[0]
     barcode0 = barcode[0]
     goal_b0 = 0
     for bar in barcode0:
-        if bar[0] == 1 and bar[1] == 0.5:
+        if bar[0] == 1 and bar[1] <= 0:
             goal_b0 += 1
     row[0] = goal_b0
 
     barcode1 = barcode[1]
     goal_b1 = 0
     for bar in barcode1:
-        if bar[0] == 1 and bar[1] == 0.5:
+        if bar[0] == 1 and bar[1] <= 0:
             goal_b1 += 1
     row[1] = goal_b1
 
-    barcode_dict[filename] = [barcode0.tolist(), barcode1.tolist()]
+    np.savetxt('data/barcodes/preprocessed_full_train/dim0/preprocessed_full_dim_0_data_%d.csv' % i, np.asarray(barcode0), fmt='%1.1f', delimiter=',')
+    np.savetxt('data/barcodes/preprocessed_full_train/dim1/preprocessed_full_dim_1_data_%d.csv' % i, np.asarray(barcode1), fmt='%1.1f', delimiter=',')
 
     betas.append(row)
     print(str(i), ' ', row)
@@ -87,18 +108,10 @@ for i in range(n):
     i += 1
 
 betas = np.stack(betas, axis=0)
-np.savetxt('data/train_betas.csv', betas, fmt='%1.0f', delimiter=',')
-
-barcode_json = json.dumps(barcode_dict)
-barcode_file = open('implementations/aae/barcodes/train_ground_truth.json', 'x')
-barcode_file.write(barcode_json)
-
+np.savetxt('data/betas_full_train.csv', betas, fmt='%1.0f', delimiter=',')
 '''
-values = np.stack(arrs, axis=0).flatten()
-values = arrs[0].flatten()
-f = plt.figure()
-plt.title('Image Histogram')
-plt.ylabel('Frequency')
-plt.xlabel('Intensity')
-plt.hist(values, bins=256)
-f.savefig('hist.png')'''
+ngh_betas = np.stack(ngh_betas, axis=0)
+np.savetxt('data/ngh_mini_betas.csv', ngh_betas, fmt='%1.0f', delimiter=',')
+
+core_betas = np.stack(core_betas, axis=0)
+np.savetxt('data/core_mini_betas.csv', core_betas, fmt='%1.0f', delimiter=',')'''

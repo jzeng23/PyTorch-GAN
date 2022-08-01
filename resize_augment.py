@@ -7,10 +7,10 @@ import torchvision.transforms
 
 # augment via rotating original image and mirrored version of image
 
-raw_dir = 'data/raw/small'
+raw_dir = 'images/raw'
 overall_dir = 'images/full_dataset_different_thresholds'
 save_dir = 'images/full_dataset_different_thresholds/original_resized_augmented'
-#os.mkdir(save_dir)
+os.makedirs(save_dir, exist_ok=True)
 i = 0
 
 randomcrop = torchvision.transforms.RandomResizedCrop(size=85, scale=(0.5, 1.0))
@@ -21,7 +21,7 @@ for filename in list:
 
     im = Image.open(os.path.join(raw_dir, filename))
 
-    for n in range(150):
+    for n in range(30):
         cropped = randomcrop(im)  
         cropped.save(os.path.join(save_dir, 'data_' + str(i) + '.png'))
         i += 1
@@ -46,6 +46,9 @@ N = len(os.listdir(save_dir)) - 1
 test_indices = np.random.randint(0, N, size=N//5).tolist()
 current_train_index = 0
 current_test_index = 0
+
+os.makedirs(overall_dir + '/train/original', exist_ok=True)
+os.makedirs(overall_dir + '/test/original', exist_ok=True)
 
 for j in range(N):
     destination = overall_dir
