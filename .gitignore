@@ -5,11 +5,13 @@
 .DS_Store
 
 data/raw
+data/barcodes
 data/mnist
 implementations/*/data
 implementations/*/images
 implementations/*/saved_models
 images3/
-images/
+images/*
+images/full_dataset_different_thresholds/*
 
 __pycache__
