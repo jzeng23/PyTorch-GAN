@@ -13,5 +13,7 @@ implementations/*/saved_models
 images3/
 images/*
 images/full_dataset_different_thresholds/*
+implementations/aae/latest_model
+implementations/aae/plots
 
 __pycache__
