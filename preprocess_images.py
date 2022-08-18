@@ -13,23 +13,25 @@ from topologylayer.nn import LevelSetLayer2D, SumBarcodeLengths
 
 levelsetlayer = LevelSetLayer2D(size=(85, 85), maxdim=1, sublevel=False)
 
-dir = 'images/full_dataset_different_thresholds/train'
+dir = '/scratch/train_topological_aae/n_63670'
 original_dir = dir + '/original'
 core_dir = dir + '/core'
 neighborhood_dir = dir + '/neighborhood'
 processed_dir = dir + '/processed'
+dim0_dir = 'data/barcodes/preprocessed_train_50000/dim0'
+dim1_dir = 'data/barcodes/preprocessed_train_50000/dim1'
 
 os.makedirs(core_dir, exist_ok=True)
 os.makedirs(neighborhood_dir, exist_ok=True)
 os.makedirs(processed_dir, exist_ok=True)
-os.makedirs('data/barcodes/preprocessed_full_train/dim0', exist_ok=True)
-os.makedirs('data/barcodes/preprocessed_full_train/dim1', exist_ok=True)
+os.makedirs('data/barcodes/preprocessed_train_50000/dim0', exist_ok=True)
+os.makedirs('data/barcodes/preprocessed_train_50000/dim1', exist_ok=True)
 
 betas = []
 
 barcode_dict = {}
 
-otsu_thresholds = np.loadtxt('data/otsu_thresholds_full_train.csv', delimiter=',')
+otsu_thresholds = np.loadtxt('/scratch/train_topological_aae/n_63670/otsu_thresholds_train_50000.csv', delimiter=',')
 epsilon = 15
 
 def get_betas(img_array):
@@ -95,8 +97,8 @@ for i in range(n):
             goal_b1 += 1
     row[1] = goal_b1
 
-    np.savetxt('data/barcodes/preprocessed_full_train/dim0/preprocessed_full_dim_0_data_%d.csv' % i, np.asarray(barcode0), fmt='%1.1f', delimiter=',')
-    np.savetxt('data/barcodes/preprocessed_full_train/dim1/preprocessed_full_dim_1_data_%d.csv' % i, np.asarray(barcode1), fmt='%1.1f', delimiter=',')
+    #np.savetxt(os.path.join(dim0_dir, 'preprocessed_dim_0_data_%d.csv' % i), np.asarray(barcode0), fmt='%1.1f', delimiter=',')
+    #np.savetxt(os.path.join(dim1_dir, 'preprocessed_dim_1_data_%d.csv' % i), np.asarray(barcode1), fmt='%1.1f', delimiter=',')
 
     betas.append(row)
     print(str(i), ' ', row)
@@ -108,7 +110,7 @@ for i in range(n):
     i += 1
 
 betas = np.stack(betas, axis=0)
-np.savetxt('data/betas_full_train.csv', betas, fmt='%1.0f', delimiter=',')
+np.savetxt('/scratch/train_topological_aae/n_63670/betas_train_50000_train.csv', betas, fmt='%1.0f', delimiter=',')
 '''
 ngh_betas = np.stack(ngh_betas, axis=0)
 np.savetxt('data/ngh_mini_betas.csv', ngh_betas, fmt='%1.0f', delimiter=',')

@@ -38,7 +38,7 @@ os.makedirs("images", exist_ok=True)
 parser = argparse.ArgumentParser()
 parser.add_argument("--n_epochs", type=int, default=10000, help="number of epochs of training")
 parser.add_argument("--batch_size", type=int, default=10, help="size of the batches")
-parser.add_argument("--lr", type=float, default=0.0002, help="adam: learning rate")
+parser.add_argument("--lr", type=float, default=0.00017, help="adam: learning rate")
 parser.add_argument("--b1", type=float, default=0.5, help="adam: decay of first order momentum of gradient")
 parser.add_argument("--b2", type=float, default=0.999, help="adam: decay of first order momentum of gradient")
 parser.add_argument("--n_cpu", type=int, default=8, help="number of cpu threads to use during batch generation")
@@ -47,12 +47,12 @@ parser.add_argument("--img_size", type=int, default=85, help="size of each image
 parser.add_argument("--channels", type=int, default=1, help="number of image channels")
 parser.add_argument("--decoder_input_channels", type=int, default=1, help="number of image channels")
 parser.add_argument("--sample_interval", type=int, default=100, help="interval between image sampling")
-parser.add_argument("--save_dir", type=str, default='latest_model/loss_mse/ExponentialLR/0.0002/gamma_0.9999/alpha', help="directory where you save models")
+parser.add_argument("--save_dir", type=str, default='latest_model/loss_mse/ExponentialLR/0.00017/gamma_0.9996_start_1500/n1c1/alpha_1.0003', help="directory where you save models")
 opt = parser.parse_args()
 print(opt)
 
 img_shape = (opt.channels, opt.img_size, opt.img_size)
-settings = 'loss_mse/ExponentialLR/0.0002/gamma_0.9999/alpha'
+settings = 'loss_mse/ExponentialLR/0.00017/gamma_0.9996_start_1500/n1c1/alpha_1.0003'
 os.makedirs(opt.save_dir, exist_ok=True)
 
 cuda = True if torch.cuda.is_available() else False
@@ -247,7 +247,7 @@ trainloader = torch.utils.data.DataLoader(dataset, batch_size=opt.batch_size, sh
 optimizer_G = torch.optim.Adam(
     itertools.chain(encoder.parameters(), decoder.parameters()), lr=opt.lr, betas=(opt.b1, opt.b2)
 )
-scheduler_G = torch.optim.lr_scheduler.ExponentialLR(optimizer_G, gamma=0.9999)
+scheduler_G = torch.optim.lr_scheduler.ExponentialLR(optimizer_G, gamma=0.9996)
 optimizer_D = torch.optim.Adam(discriminator.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
 
 Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
@@ -430,10 +430,14 @@ for epoch in range(opt.n_epochs):
             sample_image(current_epoch=epoch, imgs=decoded_clone, nums=img_nums)
             sample_barcode(decoded_clone, img_nums, epoch)
     
-    learning_rate = scheduler_G.get_last_lr()[0]
-    scheduler_G.step()
+    if epoch >= 1500:
+        learning_rate = scheduler_G.get_last_lr()[0]
+        scheduler_G.step()
 
     alpha *= 1.0003
+    print('----CONV----')
+    print(encoder.encoder[0][0].weight)
+    print(encoder.encoder[0][0].weight.size())
 
     # -----------
     # Validation
@@ -514,7 +518,7 @@ for epoch in range(opt.n_epochs):
         sample_image_random_noise(n_row=opt.batch_size, batches_done=batches_done, current_epoch=epoch)
     '''
          
-    writer.add_scalars('ExponentialLR(0.0002, 0.9999), MSE 1e-5, epsilon=15, new goal betas, alpha', {
+    writer.add_scalars('ExponentialLR(0.00017, 0.9996), MSE 1e-5, start 1500, new goal betas, N1C1, alpha 1.0003', {
         'Train Generator': epoch_g_loss / len(trainloader),
         'Train Discriminator': epoch_d_loss / len(trainloader),
         'Train Core' : epoch_c_loss / len(trainloader),
@@ -543,3 +547,4 @@ for epoch in range(opt.n_epochs):
     }, epoch)
     '''
     writer.add_scalars('alpha 1.0003', {'alpha': alpha}, epoch)
+    writer.add_scalars('Learning Rate', {'LR': learning_rate}, epoch)

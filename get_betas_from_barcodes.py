@@ -8,9 +8,9 @@ import torch
 otsu_thresholds = np.loadtxt('data/mini_otsu_thresholds_diff_thresholds.csv', delimiter=',')
 goal_betas = np.loadtxt('data/mini_betas_diff_thresholds.csv', delimiter=',')
 epsilon = 15
-epoch = 6300
-barcodes_dir = 'implementations/aae/barcode/loss_mse/lr_0.0002'
-images_dir = 'implementations/aae/images/loss_mse/lr_0.0002/epoch_%d' % epoch
+epoch = 9900
+barcodes_dir = 'implementations/aae/barcode/loss_mse/lr_0.0002/alpha_1.0001'
+images_dir = 'implementations/aae/images/loss_mse/lr_0.0002/alpha_1.0001/epoch_%d' % epoch
 core_dir = 'images/different_thresholds/core'
 neighborhood_dir = 'images/different_thresholds/neighborhood'
 n = 10
@@ -26,7 +26,7 @@ betas = np.zeros((n,2))
 top_losses = np.zeros((n,2))
 core_losses = np.zeros(n)
 ngh_losses = np.zeros(n)
-indices = [0, 1, 2, 6]
+indices = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 for i in range(n):
     N = (otsu_thresholds[i] - epsilon) / 255
     C = (otsu_thresholds[i] + epsilon) / 255
@@ -87,11 +87,11 @@ for i in range(n):
     ngh_losses[i] = neighborhood_loss
 
 
-os.makedirs('data/loss_mse/lr_0.0002', exist_ok=True)
-np.savetxt('data/loss_mse/lr_0.0002/output_betas_epoch_%d.csv' % epoch, betas, fmt='%1.0f', delimiter=',')
-np.savetxt('data/loss_mse/lr_0.0002/top_losses_epoch_%d.csv' % epoch, top_losses, delimiter=',')
-np.savetxt('data/loss_mse/lr_0.0002/core_losses_epoch_%d.csv' % epoch, core_losses, delimiter=',')
-np.savetxt('data/loss_mse/lr_0.0002/ngh_losses_epoch_%d.csv' % epoch, ngh_losses, delimiter=',')
+os.makedirs('data/loss_mse/lr_0.0002/alpha_1.0001', exist_ok=True)
+np.savetxt('data/loss_mse/lr_0.0002/alpha_1.0001/output_betas_epoch_%d.csv' % epoch, betas, fmt='%1.0f', delimiter=',')
+np.savetxt('data/loss_mse/lr_0.0002/alpha_1.0001/top_losses_epoch_%d.csv' % epoch, top_losses, delimiter=',')
+np.savetxt('data/loss_mse/lr_0.0002/alpha_1.0001/core_losses_epoch_%d.csv' % epoch, core_losses, delimiter=',')
+np.savetxt('data/loss_mse/lr_0.0002/alpha_1.0001/ngh_losses_epoch_%d.csv' % epoch, ngh_losses, delimiter=',')
 print('mean topological loss: ')
 print('dim 0: ', total_top_loss_0 / len(indices))
 print('dim 1: ', total_top_loss_1 / len(indices))

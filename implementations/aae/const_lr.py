@@ -47,12 +47,12 @@ parser.add_argument("--img_size", type=int, default=85, help="size of each image
 parser.add_argument("--channels", type=int, default=1, help="number of image channels")
 parser.add_argument("--decoder_input_channels", type=int, default=1, help="number of image channels")
 parser.add_argument("--sample_interval", type=int, default=100, help="interval between image sampling")
-parser.add_argument("--save_dir", type=str, default='latest_model/loss_mse/lr_0.0002/alpha_1.0002', help="directory where you save models")
+parser.add_argument("--save_dir", type=str, default='latest_model/loss_mse/lr_0.0002/alpha_1.0003', help="directory where you save models")
 opt = parser.parse_args()
 print(opt)
 
 img_shape = (opt.channels, opt.img_size, opt.img_size)
-settings = 'loss_mse/lr_0.0002/alpha_1.0002'
+settings = 'loss_mse/lr_0.0002/alpha_1.0003/momentum_b1_0.9'
 os.makedirs(opt.save_dir, exist_ok=True)
 
 cuda = True if torch.cuda.is_available() else False
@@ -239,8 +239,8 @@ dataset =ImageSet(
 #valid_size = len(dataset) // 5
 #train_size = len(dataset) - valid_size
 #train, valid = random_split(dataset, [train_size, valid_size])
-trainloader = torch.utils.data.DataLoader(dataset, batch_size=opt.batch_size, shuffle=True)
-#validloader = torch.utils.data.DataLoader(valid, batch_size=opt.batch_size, shuffle=True)
+trainloader = torch.utils.data.DataLoader(dataset, batch_size=opt.batch_size, shuffle=True, drop_last = True)
+#validloader = torch.utils.data.DataLoader(valid, batch_size=opt.batch_size, shuffle=True, drop_last = True)
 
 # Optimizers
 optimizer_G = torch.optim.Adam(
@@ -433,7 +433,7 @@ for epoch in range(opt.n_epochs):
     if epoch >= 1500:
         #scheduler_G.step()
     '''
-    alpha *= 1.0002
+    alpha *= 1.0003
     # -----------
     # Validation
     # -----------
@@ -494,10 +494,10 @@ for epoch in range(opt.n_epochs):
             beta1 = beta1layer(barcode)
             top_loss_0 += (target0 - beta0)**2
             top_loss_1 += (target1 - beta1)**2
-        epoch_valid_top_loss_0 += 0.00001 * top_loss_0
-        epoch_valid_top_loss_1 += 0.00001 * top_loss_1
         top_loss_0 = 0.00001 * top_loss_0 / decoded_imgs.size(0)
         top_loss_1 = 0.00001 * top_loss_1 / decoded_imgs.size(0)
+        epoch_valid_top_loss_0 += top_loss_0
+        epoch_valid_top_loss_1 += top_loss_1
 
         # Loss measures generator's ability to fool the discriminator
         valid_g_loss = ngh_loss + core_loss + top_loss_0 + top_loss_1 + 0.001 * adversarial_loss(discriminator(encoded_imgs), valid)
@@ -513,7 +513,7 @@ for epoch in range(opt.n_epochs):
         sample_image_random_noise(n_row=opt.batch_size, batches_done=batches_done, current_epoch=epoch)
     '''
          
-    writer.add_scalars('LR=0.0002, MSE 1e-5, epsilon=15, new goal betas, alpha 1.0002', {
+    writer.add_scalars('LR=0.0002, MSE 1e-5, epsilon=15, new goal betas, alpha 1.0001', {
         'Train Generator': epoch_g_loss / len(trainloader),
         'Train Discriminator': epoch_d_loss / len(trainloader),
         'Train Core' : epoch_c_loss / len(trainloader),

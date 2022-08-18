@@ -13,7 +13,7 @@ import math
 import itertools
 from PIL import Image
 from scipy.fftpack import diff
-import json
+import time
 import matplotlib.pyplot as plt
 
 import torchvision.transforms as transforms
@@ -38,7 +38,7 @@ os.makedirs("images", exist_ok=True)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--n_epochs", type=int, default=10000, help="number of epochs of training")
-parser.add_argument("--batch_size", type=int, default=256, help="size of the batches")
+parser.add_argument("--batch_size", type=int, default=8192, help="size of the batches")
 parser.add_argument("--lr", type=float, default=0.0002, help="adam: learning rate")
 parser.add_argument("--b1", type=float, default=0.5, help="adam: decay of first order momentum of gradient")
 parser.add_argument("--b2", type=float, default=0.999, help="adam: decay of first order momentum of gradient")
@@ -48,12 +48,12 @@ parser.add_argument("--img_size", type=int, default=85, help="size of each image
 parser.add_argument("--channels", type=int, default=1, help="number of image channels")
 parser.add_argument("--decoder_input_channels", type=int, default=1, help="number of image channels")
 parser.add_argument("--sample_interval", type=int, default=100, help="interval between image sampling")
-parser.add_argument("--save_dir", type=str, default='latest_model/loss_mse/lr_0.0002/alpha/full', help="directory where you save models")
+parser.add_argument("--save_dir", type=str, default='latest_model/loss_mse/ExponentialLR/0.0002/gamma_0.9999/alpha_1.0003/train_50000', help="directory where you save models")
 opt = parser.parse_args()
 print(opt)
 
 img_shape = (opt.channels, opt.img_size, opt.img_size)
-settings = 'loss_mse/lr_0.0002/alpha/full'
+settings = 'loss_mse/ExponentialLR/0.0002/gamma_0.9999/alpha_1.0003/train_50000'
 os.makedirs(opt.save_dir, exist_ok=True)
 
 cuda = True if torch.cuda.is_available() else False
@@ -189,7 +189,7 @@ class Decoder(nn.Module):
         z = self.decoder_fc(z)
         z = z.view(-1, z.size(1), 1, 1)
         z = self.decoder(z)
-        return self.sigmoid(alpha * z)
+        return self.sigmoid(alpha*z)
 
 
 class Discriminator(nn.Module):
@@ -233,25 +233,26 @@ if cuda:
 # Configure data loaders
 transform=transforms.Compose([transforms.ToTensor(),])
 dataset =ImageSet(
-    img_dir='../../images/full_dataset_different_thresholds/train/original',
-    n_dir='../../images/full_dataset_different_thresholds/train/neighborhood',
-    c_dir='../../images/full_dataset_different_thresholds/train/core',
-    betas_path='../../data/betas_full_train.csv',
-    thresholds_path='../../data/otsu_thresholds_full_train.csv',
+    img_dir='/scratch/train_topological_aae/n_63670/original',
+    n_dir='/scratch/train_topological_aae/n_63670/neighborhood',
+    c_dir='/scratch/train_topological_aae/n_63670/core',
+    betas_path='/scratch/train_topological_aae/n_63670/betas_train_50000_train.csv',
+    thresholds_path='/scratch/train_topological_aae/n_63670/otsu_thresholds_train_50000.csv',
     transform=transform)
 
 valid_size = len(dataset) // 5
 train_size = len(dataset) - valid_size
 train, valid = random_split(dataset, [train_size, valid_size])
-trainloader = torch.utils.data.DataLoader(train, batch_size=opt.batch_size, shuffle=True, drop_last=True)
-validloader = torch.utils.data.DataLoader(valid, batch_size=opt.batch_size, shuffle=True, drop_last=True)
+trainloader = torch.utils.data.DataLoader(train, batch_size=opt.batch_size, shuffle=True, drop_last=True, num_workers=20)
+validloader = torch.utils.data.DataLoader(valid, batch_size=opt.batch_size, shuffle=True, drop_last=True, num_workers=20)
 
 # Optimizers
 optimizer_G = torch.optim.Adam(
     itertools.chain(encoder.parameters(), decoder.parameters()), lr=opt.lr, betas=(opt.b1, opt.b2)
 )
-#scheduler_G = torch.optim.lr_scheduler.ExponentialLR(optimizer_G, gamma=0.9996)
+scheduler_G = torch.optim.lr_scheduler.ExponentialLR(optimizer_G, gamma=0.9999)
 optimizer_D = torch.optim.Adam(discriminator.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
+scheduler_D = torch.optim.lr_scheduler.ExponentialLR(optimizer_D, gamma=0.9999)
 
 Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
@@ -413,15 +414,25 @@ for epoch in range(opt.n_epochs):
 
         core_loss = 0
         ngh_loss = 0
-        for a in range(decoded_imgs.size(0)):
-            ngh_loss += 3*pixelwise_loss(decoded_n_complement[a, 0, :, :], torch.zeros_like(decoded_n_complement[a, 0, :, :])) / train_nc_size[a]
-            core_loss += 4*pixelwise_loss(decoded_core[a, 0, :, :], c_masks[a, 0, :, :]) / train_core_size[a] 
-        ngh_loss /= decoded_imgs.size(0)
-        core_loss /= decoded_imgs.size(0)
-        epoch_n_loss += ngh_loss
-        epoch_c_loss += core_loss
+        
+        core_squared_diffs = torch.square(torch.sub(c_masks, decoded_core))
+        core_loss_per_image = torch.sum(torch.sum(core_squared_diffs, dim=2), dim=2)
+        core_loss_per_image = core_loss_per_image[:, 0]
+        avg_core_loss_per_image = core_loss_per_image / train_core_size
+        core_loss = 4*torch.sum(avg_core_loss_per_image) / decoded_imgs.size(0)
+
+        nc_squared = torch.square(decoded_n_complement)
+        ngh_loss_per_image = torch.sum(torch.sum(nc_squared, dim=2), dim=2)
+        ngh_loss_per_image = ngh_loss_per_image[:, 0]
+        avg_ngh_loss_per_image = ngh_loss_per_image / train_nc_size
+        ngh_loss = 3*torch.sum(avg_ngh_loss_per_image) / decoded_imgs.size(0)
+
+        epoch_n_loss += ngh_loss.item()
+        epoch_c_loss += core_loss.item()
 
         # calculate topological loss
+        get_barcode = 0
+        get_sums = 0
         top_loss_0 = 0
         top_loss_1 = 0
         for n in range(decoded_imgs.size(0)):
@@ -429,15 +440,10 @@ for epoch in range(opt.n_epochs):
             target0 = beta0_goal[n]
             target1 = beta1_goal[n]
             barcode = levelsetlayer(decoded)
-            filename = 'data_' + str(img_nums[n].item()) + '.png'
-            barcode0 = barcode[0][0].clone().detach().tolist()
-            barcode1 = barcode[0][1].clone().detach().tolist()
-            epoch_barcodes[filename] = [barcode0, barcode1]
             beta0 = beta0layer(barcode)
             beta1 = beta1layer(barcode)
             top_loss_0 += (target0 - beta0)**2
             top_loss_1 += (target1 - beta1)**2
-
         top_loss_0 = 0.00001 * top_loss_0 / decoded_imgs.size(0)
         top_loss_1 = 0.00001 * top_loss_1 / decoded_imgs.size(0)
         epoch_top_loss_0 += top_loss_0
@@ -452,7 +458,6 @@ for epoch in range(opt.n_epochs):
         # ---------------------
         #  Train Discriminator
         # ---------------------
-
         optimizer_D.zero_grad()
 
         # Sample noise as discriminator ground truth
@@ -470,17 +475,15 @@ for epoch in range(opt.n_epochs):
             "[Epoch %d/%d] Training [Batch %d/%d] [D loss: %f] [G loss: %f]"
             % (epoch, opt.n_epochs, i, len(trainloader), d_loss.item(), g_loss.item())
         )
-        
         if epoch % opt.sample_interval == 0 and i == 0:
-            decoded_clone = decoded_imgs.clone().detach()
-            sample_image(current_epoch=epoch, imgs=decoded_clone[0:10, :, :, :], nums=img_nums)
-            sample_barcode(decoded_clone, img_nums, epoch)
-    '''
+            sample_image(current_epoch=epoch, imgs=decoded_imgs[0:10, :, :, :], nums=img_nums[0:10])
+            #sample_barcode(decoded_imgs[0:10, :, :, :], img_nums[0:10] epoch)
+
     learning_rate = scheduler_G.get_last_lr()[0]
-    if epoch >= 1500:
-        #scheduler_G.step()
-    '''
+    scheduler_G.step()
+    scheduler_D.step()
     alpha *= 1.0003
+    
     # -----------
     # Validation
     # -----------
@@ -513,24 +516,32 @@ for epoch in range(opt.n_epochs):
         valid_core_size = Variable(valid_core_size.type(Tensor))
 
         encoded_imgs = encoder(real_imgs)
-        decoded_imgs = decoder(encoded_imgs, alpha)
+        decoded_imgs = decoder(encoded_imgs, 1)
         # decoded_imgs = tensor of shape [64, 1, 32, 32]
 
         # calculate neighborhood loss (how much is not in the neighborhood)
-        decoded_n_complement = decoded_imgs.clone().detach()
+        decoded_n_complement = decoded_imgs.clone()
         decoded_n_complement[n_masks == 1] = 0 # mean square of pixels in decoded_n_complement
 
         # calculate core loss (how much of core is not contained)
-        decoded_core = decoded_imgs.clone().detach()
+        decoded_core = decoded_imgs.clone()
         decoded_core[c_masks == 0] = 0 # mean (1-a)^2 for each pixel value a in decoded_core
 
         core_loss = 0
         ngh_loss = 0
-        for a in range(decoded_imgs.size(0)):
-            ngh_loss += 3*pixelwise_loss(decoded_n_complement[a, 0, :, :], torch.zeros_like(decoded_n_complement[a, 0, :, :])) / valid_nc_size[a]
-            core_loss += 4*pixelwise_loss(decoded_core[a, 0, :, :], c_masks[a, 0, :, :]) / valid_core_size[a] 
-        ngh_loss /= decoded_imgs.size(0)
-        core_loss /= decoded_imgs.size(0)
+
+        core_squared_diffs = torch.square(torch.sub(c_masks, decoded_core))
+        core_loss_per_image = torch.sum(torch.sum(core_squared_diffs, dim=2), dim=2)
+        core_loss_per_image = core_loss_per_image[:, 0]
+        avg_core_loss_per_image = core_loss_per_image / valid_core_size
+        core_loss = 4*torch.sum(avg_core_loss_per_image) / decoded_imgs.size(0)
+
+        nc_squared = torch.square(decoded_n_complement)
+        ngh_loss_per_image = torch.sum(torch.sum(nc_squared, dim=2), dim=2)
+        ngh_loss_per_image = ngh_loss_per_image[:, 0]
+        avg_ngh_loss_per_image = ngh_loss_per_image / valid_nc_size
+        ngh_loss = 3*torch.sum(avg_ngh_loss_per_image) / decoded_imgs.size(0)
+
         epoch_valid_c_loss += core_loss.item()
         epoch_valid_n_loss += ngh_loss.item()
 
@@ -558,23 +569,23 @@ for epoch in range(opt.n_epochs):
                 C = (valid_thresholds[n] + 15) / 255
 
                 barcode0 = barcode[0][0]
-                shared_components = 0
-                for pair in barcode0:
-                    if pair[0] >= C and pair[1] < N:
-                        shared_components += 1
-                batch_actuals[n, 0] = shared_components
+                birth0 = barcode0[:, 0]
+                death0 = barcode0[:, 1]
+                death0 = death0[birth0 >= C]
+                death0 = death0[death0 < N]
+                batch_actuals[n, 0] = death0.size(0)
 
                 barcode1 = barcode[0][1]
-                shared_loops = 0
-                for pair in barcode1:
-                    if pair[0] >= C and pair[1] < N:
-                        shared_loops += 1
-                batch_actuals[n, 1] = shared_loops
-
-        epoch_valid_top_loss_0 += 0.00001 * top_loss_0
-        epoch_valid_top_loss_1 += 0.00001 * top_loss_1
+                birth1 = barcode1[:, 0]
+                death1 = barcode1[:, 1]
+                death1 = death1[birth1 >= C]
+                death1 = death1[death1 < N]
+                batch_actuals[n, 1] = death1.size(0)
+                
         top_loss_0 = 0.00001 * top_loss_0 / decoded_imgs.size(0)
         top_loss_1 = 0.00001 * top_loss_1 / decoded_imgs.size(0)
+        epoch_valid_top_loss_0 += top_loss_0
+        epoch_valid_top_loss_1 += top_loss_1
 
         # Loss measures generator's ability to fool the discriminator
         valid_g_loss = ngh_loss + core_loss + top_loss_0 + top_loss_1 + 0.001 * adversarial_loss(discriminator(encoded_imgs), valid)
@@ -594,8 +605,8 @@ for epoch in range(opt.n_epochs):
                 actuals = np.concatenate((actuals, batch_actuals), axis=0)
 
         print(
-            "[Epoch %d/%d] Validation [Batch %d/%d] [D loss: %f] [G loss: %f]"
-            % (epoch, opt.n_epochs, j, len(validloader), d_loss.item(), g_loss.item())
+            "[Epoch %d/%d] Validation [Batch %d/%d] [G loss: %f]"
+            % (epoch, opt.n_epochs, j, len(validloader), valid_g_loss.item())
         )
     
     epoch_valid_g_loss /= len(validloader)
@@ -605,10 +616,10 @@ for epoch in range(opt.n_epochs):
 
     if epoch % opt.sample_interval == 0:
         get_plots(epoch, losses, goals, actuals, sums)
-        sample_image_random_noise(epoch, n)
+        sample_image_random_noise(epoch, 10)
     
          
-    writer.add_scalars('LR=0.0002, MSE 1e-5, epsilon=15, new goal betas', {
+    writer.add_scalars('ExponentialLR(0.0002, 0.9999), MSE 1e-5, new goal betas, 50936 train images (not including validation)', {
         'Train Generator': epoch_g_loss / len(trainloader),
         'Train Discriminator': epoch_d_loss / len(trainloader),
         'Train Core' : epoch_c_loss / len(trainloader),
@@ -635,4 +646,6 @@ for epoch in range(opt.n_epochs):
         'Valid Top 0': epoch_valid_top_loss_0 / len(validloader),
         'Valid Top 1': epoch_valid_top_loss_1 / len(validloader)
     }, epoch)
+
+    writer.add_scalars('Learning Rate', {'LR': learning_rate}, epoch)
     

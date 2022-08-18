@@ -43,10 +43,10 @@ def generate_csv(dir, save_path):
         print(i)
     np.savetxt(save_path, thresholds, delimiter=',')
 
-img_dir='images/full_dataset_different_thresholds'
+img_dir='images/train_50000'
 train_dir = img_dir + '/train/original'
 test_dir = img_dir + '/test/original'
-generate_csv(train_dir, 'data/otsu_thresholds_full_train.csv')
+generate_csv(train_dir, 'data/otsu_thresholds_train_50000.csv')
 
 # testing all thresholds from 0 to the maximum of the image
 
